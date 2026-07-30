@@ -98,11 +98,6 @@ const ENTITY_MAP = {
       'DRT': [
         'Litigation Search/DRT/Entities/Tulip Data services'
       ]
-    },
-    cersai: {
-      'Debtor Based Search': [
-        'Debtor based search - Entities'
-      ]
     }
   },
   'Space World Group LLP': {
@@ -250,6 +245,36 @@ app.get('/api/names', (req, res) => {
 app.get('/api/search', (req, res) => {
   const { type, name } = req.query;
 
+  // Global Asset Search Details
+  if (type === 'asset') {
+    const assetDir = path.join(REPORTS_BASE, 'Asset based search');
+    const pdfs = getPdfsFromDir(assetDir);
+    return res.json({
+      name: 'Global Asset Details',
+      type: 'asset',
+      categories: {
+        asset: {
+          'CERSAI Asset Search Report': pdfs
+        }
+      }
+    });
+  }
+
+  // Global Debtor Search Reports
+  if (type === 'debtor') {
+    const debtorDir = path.join(REPORTS_BASE, 'Debtor based search - Entities');
+    const pdfs = getPdfsFromDir(debtorDir);
+    return res.json({
+      name: 'Debtor Search Reports (All Entities)',
+      type: 'debtor',
+      categories: {
+        debtor: {
+          'CERSAI Debtor Search Details': pdfs
+        }
+      }
+    });
+  }
+
   if (!type || !name) {
     return res.status(400).json({ error: 'Both type and name are required.' });
   }
@@ -263,7 +288,7 @@ app.get('/api/search', (req, res) => {
 
   const result = {};
 
-  // For each top-level category (roc, litigation, cersai, etc.)
+  // For each top-level category (roc, litigation)
   for (const [category, subCategories] of Object.entries(entry)) {
     result[category] = {};
 
@@ -277,14 +302,6 @@ app.get('/api/search', (req, res) => {
         result[category][subCategory] = pdfs;
       }
     }
-  }
-
-  // Also check for asset-based search (shared across all)
-  const assetDir = path.join(REPORTS_BASE, 'Asset based search');
-  const assetPdfs = getPdfsFromDir(assetDir);
-  if (assetPdfs.length > 0 && type === 'entity') {
-    if (!result['cersai']) result['cersai'] = {};
-    result['cersai']['Asset Based Search'] = assetPdfs;
   }
 
   res.json({

@@ -10,6 +10,8 @@ const $$ = (sel) => document.querySelectorAll(sel);
 
 const btnPerson = $('#btnPerson');
 const btnEntity = $('#btnEntity');
+const btnAsset = $('#btnAsset');
+const btnDebtor = $('#btnDebtor');
 const nameSelect = $('#nameSelect');
 const populateBtn = $('#populateBtn');
 const emptyState = $('#emptyState');
@@ -77,6 +79,8 @@ function bindEvents() {
   // Type toggle
   btnPerson.addEventListener('click', () => switchType('person'));
   btnEntity.addEventListener('click', () => switchType('entity'));
+  btnAsset.addEventListener('click', () => switchType('asset'));
+  btnDebtor.addEventListener('click', () => switchType('debtor'));
 
   // Name select
   nameSelect.addEventListener('change', () => {
@@ -101,16 +105,29 @@ function switchType(type) {
   // Update toggle buttons
   btnPerson.classList.toggle('active', type === 'person');
   btnEntity.classList.toggle('active', type === 'entity');
+  btnAsset.classList.toggle('active', type === 'asset');
+  btnDebtor.classList.toggle('active', type === 'debtor');
 
-  // Reset
-  populateBtn.disabled = true;
-  loadNames(type);
+  if (type === 'asset' || type === 'debtor') {
+    nameSelect.innerHTML = type === 'asset'
+      ? '<option value="global">— Global Asset Report —</option>'
+      : '<option value="global">— Global Debtor Reports —</option>';
+    nameSelect.disabled = true;
+    populateBtn.disabled = false;
+    handlePopulate();
+  } else {
+    nameSelect.disabled = false;
+    populateBtn.disabled = true;
+    loadNames(type);
+  }
 }
 
 // ─── Handle Populate ────────────────────────────────────────────
 async function handlePopulate() {
-  const name = nameSelect.value;
-  if (!name) return;
+  if (currentType === 'person' || currentType === 'entity') {
+    const name = nameSelect.value;
+    if (!name) return;
+  }
 
   // Show loading
   emptyState.style.display = 'none';
@@ -118,12 +135,16 @@ async function handlePopulate() {
   loadingState.style.display = 'flex';
 
   try {
-    const res = await fetch(`${API_BASE}/api/search?type=${currentType}&name=${encodeURIComponent(name)}`);
+    let url = `${API_BASE}/api/search?type=${currentType}`;
+    if (currentType === 'person' || currentType === 'entity') {
+      url += `&name=${encodeURIComponent(nameSelect.value)}`;
+    }
+    const res = await fetch(url);
     const data = await res.json();
     currentData = data;
 
     // Small delay for effect
-    await new Promise(r => setTimeout(r, 600));
+    await new Promise(r => setTimeout(r, 400));
 
     renderResults(data);
   } catch (e) {
@@ -139,8 +160,12 @@ function renderResults(data) {
   resultsContainer.style.display = 'block';
 
   // Header
-  const badgeClass = data.type === 'person' ? 'badge-person' : 'badge-entity';
-  const badgeIcon = data.type === 'person' ? '👤' : '🏢';
+  let badgeClass = 'badge-person';
+  let badgeIcon = '👤';
+  if (data.type === 'entity') { badgeClass = 'badge-entity'; badgeIcon = '🏢'; }
+  else if (data.type === 'asset') { badgeClass = 'badge-asset'; badgeIcon = '🏡'; }
+  else if (data.type === 'debtor') { badgeClass = 'badge-debtor'; badgeIcon = '📋'; }
+
   resultsHeader.innerHTML = `
     <h2 class="results-name">
       ${escHtml(data.name)}
@@ -312,6 +337,8 @@ function formatCategoryName(key) {
   const names = {
     roc: 'ROC Search',
     litigation: 'Litigation Search',
+    asset: 'Asset Details',
+    debtor: 'Debtor Search Details',
     cersai: 'CERSAI / Debtor Search'
   };
   return names[key] || key.charAt(0).toUpperCase() + key.slice(1);
@@ -321,6 +348,8 @@ function getCategoryColor(key) {
   const colors = {
     roc: 'var(--cat-roc)',
     litigation: 'var(--cat-litigation)',
+    asset: 'var(--cat-asset)',
+    debtor: 'var(--cat-debtor)',
     cersai: 'var(--cat-cersai)'
   };
   return colors[key] || 'var(--accent-blue)';

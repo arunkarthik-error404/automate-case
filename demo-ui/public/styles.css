@@ -28,6 +28,8 @@
   --cat-roc: #3b82f6;
   --cat-litigation: #f59e0b;
   --cat-cersai: #10b981;
+  --cat-asset: #06b6d4;
+  --cat-debtor: #ec4899;
 
   /* Text */
   --text-primary: #f1f5f9;
@@ -383,6 +385,18 @@ body {
   border: 1px solid rgba(59, 130, 246, 0.25);
 }
 
+.badge-asset {
+  background: rgba(6, 182, 212, 0.15);
+  color: var(--accent-cyan);
+  border: 1px solid rgba(6, 182, 212, 0.25);
+}
+
+.badge-debtor {
+  background: rgba(236, 72, 153, 0.15);
+  color: #ec4899;
+  border: 1px solid rgba(236, 72, 153, 0.25);
+}
+
 /* Category Filters */
 .category-filters {
   display: flex;
@@ -454,6 +468,8 @@ body {
 .category-dot.roc { background: var(--cat-roc); box-shadow: 0 0 10px var(--accent-blue-glow); }
 .category-dot.litigation { background: var(--cat-litigation); box-shadow: 0 0 10px var(--accent-orange-glow); }
 .category-dot.cersai { background: var(--cat-cersai); box-shadow: 0 0 10px var(--accent-green-glow); }
+.category-dot.asset { background: var(--cat-asset); box-shadow: 0 0 10px rgba(6, 182, 212, 0.3); }
+.category-dot.debtor { background: var(--cat-debtor); box-shadow: 0 0 10px rgba(236, 72, 153, 0.3); }
 
 .category-title {
   font-size: 1.05rem;
@@ -621,7 +637,8 @@ body {
 
 /* Toggle Group */
 .toggle-group {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 6px;
   background: var(--bg-glass);
   border: 1px solid var(--border-subtle);
@@ -630,13 +647,12 @@ body {
 }
 
 .toggle-btn {
-  flex: 1;
-  padding: 10px;
+  padding: 9px 6px;
   border: none;
   background: transparent;
   color: var(--text-secondary);
   font-family: inherit;
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   font-weight: 500;
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -644,7 +660,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 5px;
 }
 
 .toggle-btn:hover {
@@ -820,6 +836,8 @@ body {
 
 .legend-dot.roc { background: var(--cat-roc); }
 .legend-dot.litigation { background: var(--cat-litigation); }
+.legend-dot.asset { background: var(--cat-asset); }
+.legend-dot.debtor { background: var(--cat-debtor); }
 .legend-dot.cersai { background: var(--cat-cersai); }
 
 /* ─── PDF Modal ────────────────────────────────────────────────── */

@@ -55,6 +55,17 @@ def get_gcp_credentials():
         except Exception as e:
             print(f"[AUTH ERROR] Failed to parse GCP_SERVICE_ACCOUNT_JSON env var: {e}")
 
+    # Check for Render Secret Files at /etc/secrets/
+    render_secret = "/etc/secrets/gcp-service.json"
+    if not svc_key_path and os.path.exists(render_secret):
+        svc_key_path = render_secret
+
+    if not svc_key_path:
+        for f in os.listdir("/etc/secrets") if os.path.exists("/etc/secrets") else []:
+            if f.endswith(".json"):
+                svc_key_path = os.path.join("/etc/secrets", f)
+                break
+
     if svc_key_path and os.path.exists(svc_key_path):
         try:
             creds = service_account.Credentials.from_service_account_file(

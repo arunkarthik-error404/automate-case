@@ -291,8 +291,17 @@ app.get('/api/stats', (req, res) => {
 
 // ─── API: AI Chatbot Endpoint ───────────────────────────────────
 
-const { execFile } = require('child_process');
-const PYTHON_PATH = path.join(__dirname, '..', 'venv', 'Scripts', 'python.exe');
+// Path to Python executable (Cross-platform support for Linux/Docker and Windows)
+function getPythonExecutable() {
+  if (process.env.PYTHON_PATH) return process.env.PYTHON_PATH;
+  const winVenv = path.join(__dirname, '..', 'venv', 'Scripts', 'python.exe');
+  if (fs.existsSync(winVenv)) return winVenv;
+  const linuxVenv = path.join(__dirname, '..', 'venv', 'bin', 'python');
+  if (fs.existsSync(linuxVenv)) return linuxVenv;
+  return 'python3';
+}
+
+const PYTHON_PATH = getPythonExecutable();
 const CHATBOT_SCRIPT = path.join(__dirname, '..', 'chatbot.py');
 
 app.post('/api/chat', (req, res) => {

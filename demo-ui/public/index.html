@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Case Search Reports — Interactive Dashboard</title>
+  <meta name="description" content="Interactive dashboard for browsing case search reports including ROC, Litigation, CERSAI and more.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Background animated blobs -->
+  <div class="bg-blobs">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+  </div>
+
+  <!-- Header -->
+  <header class="main-header">
+    <div class="header-content">
+      <div class="logo-group">
+        <div class="logo-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+            <polyline points="10 9 9 9 8 9"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="header-title">Case Search Reports</h1>
+          <p class="header-subtitle">Interactive Document Explorer</p>
+        </div>
+      </div>
+      <div class="header-stats" id="headerStats">
+        <div class="stat-chip">
+          <span class="stat-number" id="statPersons">—</span>
+          <span class="stat-label">Persons</span>
+        </div>
+        <div class="stat-chip">
+          <span class="stat-number" id="statEntities">—</span>
+          <span class="stat-label">Entities</span>
+        </div>
+        <div class="stat-chip">
+          <span class="stat-number" id="statDocs">—</span>
+          <span class="stat-label">Documents</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Layout -->
+  <div class="app-layout">
+
+    <!-- Left: Content Area -->
+    <main class="content-area" id="contentArea">
+      <!-- Empty state -->
+      <div class="empty-state" id="emptyState">
+        <div class="empty-icon">
+          <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+        </div>
+        <h2 class="empty-title">Select a Person or Entity</h2>
+        <p class="empty-desc">Choose a name from the panel on the right and click <strong>Populate</strong> to view all related documents.</p>
+        <div class="empty-hints">
+          <div class="hint-card">
+            <div class="hint-icon person-icon">👤</div>
+            <span>Persons</span>
+          </div>
+          <div class="hint-card">
+            <div class="hint-icon entity-icon">🏢</div>
+            <span>Entities</span>
+          </div>
+          <div class="hint-card">
+            <div class="hint-icon doc-icon">📄</div>
+            <span>PDF Preview</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Loading state -->
+      <div class="loading-state" id="loadingState" style="display:none;">
+        <div class="loader-ring">
+          <div></div><div></div><div></div><div></div>
+        </div>
+        <p class="loading-text">Fetching documents...</p>
+      </div>
+
+      <!-- Results -->
+      <div class="results-container" id="resultsContainer" style="display:none;">
+        <div class="results-header" id="resultsHeader"></div>
+        <div class="category-filters" id="categoryFilters"></div>
+        <div class="results-grid" id="resultsGrid"></div>
+      </div>
+    </main>
+
+    <!-- Right: Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-inner">
+        <div class="sidebar-section">
+          <h3 class="sidebar-label">Search Type</h3>
+          <div class="toggle-group" id="typeToggle">
+            <button class="toggle-btn active" data-type="person" id="btnPerson">
+              <span class="toggle-icon">👤</span>
+              Person
+            </button>
+            <button class="toggle-btn" data-type="entity" id="btnEntity">
+              <span class="toggle-icon">🏢</span>
+              Entity
+            </button>
+          </div>
+        </div>
+
+        <div class="sidebar-section">
+          <h3 class="sidebar-label">Select Name</h3>
+          <div class="custom-select-wrapper">
+            <select class="custom-select" id="nameSelect">
+              <option value="">— Choose a name —</option>
+            </select>
+            <div class="select-arrow">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </div>
+          </div>
+        </div>
+
+        <button class="populate-btn" id="populateBtn" disabled>
+          <span class="btn-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="1 4 1 10 7 10"/>
+              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+            </svg>
+          </span>
+          Populate
+        </button>
+
+        <div class="sidebar-divider"></div>
+
+        <!-- Selected info -->
+        <div class="selection-info" id="selectionInfo" style="display:none;">
+          <h3 class="sidebar-label">Current Selection</h3>
+          <div class="info-card">
+            <div class="info-name" id="infoName"></div>
+            <div class="info-type" id="infoType"></div>
+            <div class="info-count" id="infoCount"></div>
+          </div>
+        </div>
+
+        <!-- Quick legend -->
+        <div class="sidebar-section legend-section">
+          <h3 class="sidebar-label">Category Legend</h3>
+          <div class="legend-items">
+            <div class="legend-item">
+              <span class="legend-dot roc"></span>
+              <span>ROC Search</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-dot litigation"></span>
+              <span>Litigation</span>
+            </div>
+            <div class="legend-item">
+              <span class="legend-dot cersai"></span>
+              <span>CERSAI / Debtor</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Full-screen PDF Modal -->
+  <div class="pdf-modal" id="pdfModal">
+    <div class="modal-backdrop" id="modalBackdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modalTitle">Document</h3>
+        <button class="modal-close" id="modalClose">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <iframe id="modalIframe" src="" frameborder="0"></iframe>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating AI Chatbot Widget -->
+  <button class="ai-chat-toggle" id="aiChatToggle" title="Open AI Legal Assistant">
+    <div class="toggle-sparkle">✨</div>
+    <span>AI Chatbot</span>
+  </button>
+
+  <div class="ai-chat-window" id="aiChatWindow" style="display:none;">
+    <div class="chat-header">
+      <div class="chat-header-info">
+        <div class="chat-avatar">🤖</div>
+        <div>
+          <h3 class="chat-title">AI Legal Assistant</h3>
+          <span class="chat-subtitle">PostgreSQL + pgvector Hybrid Search</span>
+        </div>
+      </div>
+      <button class="chat-close-btn" id="chatCloseBtn">&times;</button>
+    </div>
+
+    <!-- Quick prompt chips -->
+    <div class="quick-prompts">
+      <button class="chip-btn" data-prompt="can you tell me the details about the g janarthan reddy son of gurumurthy reddy">
+        👤 G Janardhan Reddy (s/o Gurumurthy)
+      </button>
+      <button class="chip-btn" data-prompt="summary of ROC search for GVR ELECTRO TECHNICS">
+        📄 Summary of GVR Electro Technics
+      </button>
+      <button class="chip-btn" data-prompt="summary of ROC search for Space World Group">
+        🏢 Summary of Space World Group
+      </button>
+    </div>
+
+    <!-- Messages Container -->
+    <div class="chat-messages" id="chatMessages">
+      <div class="chat-msg bot-msg">
+        <div class="msg-bubble">
+          Hello! I am your AI Research Assistant. Ask me about specific individuals (with father's name or location disambiguation) or request a document summary!
+        </div>
+      </div>
+    </div>
+
+    <!-- Input Form -->
+    <form class="chat-input-form" id="chatInputForm">
+      <input type="text" id="chatInput" placeholder="Ask a question about any person or document..." autocomplete="off" />
+      <button type="submit" id="chatSendBtn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      </button>
+    </form>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

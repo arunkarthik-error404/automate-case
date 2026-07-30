@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+venv/
+node_modules/
+demo-ui/node_modules/
+__pycache__/
+*.pyc
+*.zip
+Search Reports*
+downloads/
+AUDACITY EXPORTS/
+*.log

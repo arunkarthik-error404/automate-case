@@ -1,0 +1,22 @@
+# Environment and Secrets
+.env
+*.env
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Node.js
+node_modules/
+demo-ui/node_modules/
+
+# Downloads & Large Zip Archives
+*.zip
+downloads/
+AUDACITY EXPORTS/
+Search Reports-20260730T080443Z-1-001/
+
+# Logs & Database scratch files
+*.log

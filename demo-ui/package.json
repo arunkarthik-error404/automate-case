@@ -1,0 +1,14 @@
+{
+  "name": "case-search-reports-demo",
+  "version": "1.0.0",
+  "description": "Interactive UI demo for case search reports",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "cors": "^2.8.5"
+  }
+}

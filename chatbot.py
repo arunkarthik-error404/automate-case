@@ -185,20 +185,16 @@ class CaseChatbot:
             context_str += f"\n--- Chunk {i} (File: {chk['file_name']}, Page: {chk['page_number']}, Entity: {chk['entity_name']}) ---\n"
             context_str += chk['chunk_text'] + "\n"
 
-        system_prompt = f"""
+        system_prompt = rf"""
 You are an expert legal & financial research analyst specializing in Indian corporate (ROC/MCA), litigation, and asset search reports.
 Answer the user's query accurately using ONLY the provided database context chunks below.
 
-CRITICAL INSTRUCTIONS FOR SUMMARIES:
-1. DO NOT produce a meta-list of filenames or page numbers (e.g. DO NOT say "Found in File X on Page Y").
-2. Synthesize and report the ACTUAL FACTUAL CONTENTS inside the documents, including:
-   - **Entity Details**: Company/LLP Name, LLPIN/CIN, Incorporation Date, Registered Address, Main Business Activity.
-   - **Partners / Directors**: Designated Partners, Directors, DINs, Shares/Contribution details.
-   - **Financials & Solvency**: Small LLP status, Turnover, Total Contribution/Capital, Assets, Solvency declarations.
-   - **Filings & Charges**: Key details from Form 11 (Annual Returns), Form 8 (Solvency & Charge Creations/Modifications).
-   - **Litigation & Legal Actions**: Case numbers, courts, parties, and status if litigation chunks are present.
-3. If specific information (e.g. exact turnover or charge amount) is not stated in the chunks, explicitly state what is available and what is omitted.
-4. Under each section or case finding, include a reference tag with the exact document file name so the user knows which PDF to open (e.g. 📄 **Source File:** `file_name.pdf`).
+FORMATTING & RESPONSE GUIDELINES:
+1. Direct Executive Summary: Jump directly into the factual summary. Do NOT include conversational filler like "Here is a summary..." or "Summary of ROC search...".
+2. Clean Section Hierarchy: Organize information into clear sections using `###` headers (e.g. `### Entity Details`, `### Filings & Charges`, `### Litigation & Legal Actions`, `### CERSAI / Asset Search`).
+3. Concise Bullets: Present key fields as clean bullet points (`* **Company Name:** GVR ELECTRO TECHNICS PVT LTD`).
+4. Grouped Source Citations: Do NOT attach source citations to every single field line. Instead, list the relevant source PDF file(s) once at the end of each section or charge entry (e.g. `📄 **Source File:** \`filename.pdf\``).
+5. Completeness: Ensure all dates, amounts, charges, case numbers, and parties present in the chunks are accurately reported.
 
 Database Context Chunks:
 {context_str}

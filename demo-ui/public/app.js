@@ -387,7 +387,7 @@ function initAiChatbot() {
     appendMessage(promptText, 'user');
     chatInput.value = '';
 
-    const loadingId = appendMessage('Searching vector database and synthesizing answer...', 'bot', true);
+    const loadingId = appendMessage('Searching...', 'bot', true);
 
     try {
       const res = await fetch('/api/chat', {
@@ -410,6 +410,70 @@ function initAiChatbot() {
     }
   }
 
+  function formatChatMarkdown(text) {
+    if (!text) return '';
+
+    // Escape HTML first
+    let html = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    // Convert Headers (### Header or ## Header)
+    html = html.replace(/^### (.*$)/gim, '<h4 class="chat-section-header">$1</h4>');
+    html = html.replace(/^## (.*$)/gim, '<h3 class="chat-section-header">$1</h3>');
+    html = html.replace(/^# (.*$)/gim, '<h2 class="chat-section-header">$1</h2>');
+
+    // Convert bold text **text**
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+    // Convert Source File tags (📄 **Source File:** `file.pdf` or `file.pdf`)
+    html = html.replace(/(?:📄\s*)?(?:<strong>Source File(?:s)?:<\/strong>|Source File(?:s)?:)\s*`?([a-zA-Z0-9_\-\.\s\(\)]+\.pdf)`?/gi, 
+      '<span class="source-file-badge">📄 $1</span>');
+    html = html.replace(/`([a-zA-Z0-9_\-\.\s\(\)]+\.pdf)`/gi, 
+      '<span class="source-file-badge">📄 $1</span>');
+
+    // Inline code `code`
+    html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
+
+    // Convert lists and line breaks
+    const lines = html.split('\n');
+    let inList = false;
+    let resultLines = [];
+
+    for (let line of lines) {
+      let trimmed = line.trim();
+      if (/^[\*\-]\s+/.test(trimmed)) {
+        if (!inList) {
+          inList = true;
+          resultLines.push('<ul class="chat-list">');
+        }
+        let content = trimmed.replace(/^[\*\-]\s+/, '');
+        resultLines.push(`<li>${content}</li>`);
+      } else if (/^\d+\.\s+/.test(trimmed)) {
+        if (!inList) {
+          inList = true;
+          resultLines.push('<ol class="chat-list">');
+        }
+        let content = trimmed.replace(/^\d+\.\s+/, '');
+        resultLines.push(`<li>${content}</li>`);
+      } else {
+        if (inList) {
+          inList = false;
+          resultLines.push('</ul>');
+        }
+        if (trimmed.length > 0) {
+          resultLines.push(`<p class="chat-para">${trimmed}</p>`);
+        }
+      }
+    }
+    if (inList) {
+      resultLines.push('</ul>');
+    }
+
+    return resultLines.join('');
+  }
+
   function appendMessage(text, sender, isLoading = false) {
     const msgId = 'msg-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4);
     const msgDiv = document.createElement('div');
@@ -418,10 +482,14 @@ function initAiChatbot() {
 
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
-    bubble.textContent = text;
+    
     if (isLoading) {
-      bubble.style.opacity = '0.7';
-      bubble.style.fontStyle = 'italic';
+      bubble.innerHTML = '<span class="loading-pulse"><span class="loading-dots">Searching</span><span class="dot-anim">...</span></span>';
+      bubble.style.opacity = '0.85';
+    } else if (sender === 'bot') {
+      bubble.innerHTML = formatChatMarkdown(text);
+    } else {
+      bubble.textContent = text;
     }
 
     msgDiv.appendChild(bubble);

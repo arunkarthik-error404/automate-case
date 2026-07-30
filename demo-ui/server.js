@@ -178,27 +178,57 @@ const ENTITY_MAP = {
   }
 };
 
+// Load optional manifest for remote/cloud deployment fallback
+let MANIFEST = null;
+const MANIFEST_PATH = path.join(__dirname, 'reports-manifest.json');
+if (fs.existsSync(MANIFEST_PATH)) {
+  try {
+    MANIFEST = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
+    console.log(`Loaded reports manifest with ${Object.keys(MANIFEST).length} categories.`);
+  } catch (err) {
+    console.error('Failed to parse reports-manifest.json:', err);
+  }
+}
+
 // ─── Helper: Recursively get PDFs from a directory ───────────────
 
 function getPdfsFromDir(dirPath) {
   const results = [];
-  if (!fs.existsSync(dirPath)) return results;
+  if (fs.existsSync(dirPath)) {
+    const items = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const item of items) {
+      const fullPath = path.join(dirPath, item.name);
+      if (item.isDirectory()) {
+        results.push(...getPdfsFromDir(fullPath));
+      } else if (item.name.toLowerCase().endsWith('.pdf')) {
+        // Build a URL-safe relative path from REPORTS_BASE
+        const relativePath = path.relative(REPORTS_BASE, fullPath).replace(/\\/g, '/');
+        results.push({
+          name: item.name,
+          url: '/pdfs/' + encodeURIComponent(relativePath).replace(/%2F/g, '/'),
+          size: fs.statSync(fullPath).size
+        });
+      }
+    }
+    return results;
+  }
 
-  const items = fs.readdirSync(dirPath, { withFileTypes: true });
-  for (const item of items) {
-    const fullPath = path.join(dirPath, item.name);
-    if (item.isDirectory()) {
-      results.push(...getPdfsFromDir(fullPath));
-    } else if (item.name.toLowerCase().endsWith('.pdf')) {
-      // Build a URL-safe relative path from REPORTS_BASE
-      const relativePath = path.relative(REPORTS_BASE, fullPath).replace(/\\/g, '/');
-      results.push({
-        name: item.name,
-        url: '/pdfs/' + encodeURIComponent(relativePath).replace(/%2F/g, '/'),
-        size: fs.statSync(fullPath).size
-      });
+  // Fallback to manifest if local dir does not exist (e.g., cloud deployment on Render)
+  if (MANIFEST) {
+    const relativeKey = path.relative(REPORTS_BASE, dirPath).replace(/\\/g, '/');
+    for (const [key, files] of Object.entries(MANIFEST)) {
+      if (key === relativeKey || key.startsWith(relativeKey + '/')) {
+        for (const file of files) {
+          results.push({
+            name: file.name,
+            url: '/pdfs/' + encodeURIComponent(file.relativePath).replace(/%2F/g, '/'),
+            size: file.size || 0
+          });
+        }
+      }
     }
   }
+
   return results;
 }
 
@@ -251,12 +281,10 @@ app.get('/api/search', (req, res) => {
 
   // Also check for asset-based search (shared across all)
   const assetDir = path.join(REPORTS_BASE, 'Asset based search');
-  if (fs.existsSync(assetDir)) {
-    const assetPdfs = getPdfsFromDir(assetDir);
-    if (assetPdfs.length > 0 && type === 'entity') {
-      if (!result['cersai']) result['cersai'] = {};
-      result['cersai']['Asset Based Search'] = assetPdfs;
-    }
+  const assetPdfs = getPdfsFromDir(assetDir);
+  if (assetPdfs.length > 0 && type === 'entity') {
+    if (!result['cersai']) result['cersai'] = {};
+    result['cersai']['Asset Based Search'] = assetPdfs;
   }
 
   res.json({
@@ -270,18 +298,27 @@ app.get('/api/search', (req, res) => {
 
 app.get('/api/stats', (req, res) => {
   let totalPdfs = 0;
-  const countPdfs = (dir) => {
-    if (!fs.existsSync(dir)) return;
-    const items = fs.readdirSync(dir, { withFileTypes: true });
-    for (const item of items) {
-      if (item.isDirectory()) {
-        countPdfs(path.join(dir, item.name));
-      } else if (item.name.toLowerCase().endsWith('.pdf')) {
-        totalPdfs++;
+  if (fs.existsSync(REPORTS_BASE)) {
+    const countPdfs = (dir) => {
+      const items = fs.readdirSync(dir, { withFileTypes: true });
+      for (const item of items) {
+        if (item.isDirectory()) {
+          countPdfs(path.join(dir, item.name));
+        } else if (item.name.toLowerCase().endsWith('.pdf')) {
+          totalPdfs++;
+        }
+      }
+    };
+    countPdfs(REPORTS_BASE);
+  } else if (MANIFEST) {
+    const uniqueFiles = new Set();
+    for (const files of Object.values(MANIFEST)) {
+      for (const f of files) {
+        uniqueFiles.add(f.relativePath);
       }
     }
-  };
-  countPdfs(REPORTS_BASE);
+    totalPdfs = uniqueFiles.size;
+  }
 
   res.json({
     totalPersons: Object.keys(PERSON_MAP).length,

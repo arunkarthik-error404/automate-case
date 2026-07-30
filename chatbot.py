@@ -12,6 +12,7 @@ from db_search_tool import DBSearchTool
 
 load_dotenv()
 
+import tempfile
 from google.oauth2 import service_account
 
 # Service Account credentials handling (File path OR raw JSON in env var)
@@ -20,14 +21,25 @@ svc_key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
 gcp_credentials = None
 
+# If local path in env var doesn't exist on this machine (e.g. Windows path on Linux container), clean it up
+if svc_key_path and not os.path.exists(svc_key_path):
+    os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
+    svc_key_path = None
+
 if svc_key_json:
     try:
-        info = json.loads(svc_key_json)
-        gcp_credentials = service_account.Credentials.from_service_account_info(
-            info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        clean_json = svc_key_json.strip()
+        info = json.loads(clean_json)
+        tmp_file = os.path.join(tempfile.gettempdir(), "gcp_service_account.json")
+        with open(tmp_file, "w", encoding="utf-8") as f:
+            json.dump(info, f)
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp_file
+        gcp_credentials = service_account.Credentials.from_service_account_file(
+            tmp_file, scopes=["https://www.googleapis.com/auth/cloud-platform"]
         )
+        print(f"[AUTH SUCCESS] Written GCP credentials from env var to '{tmp_file}'.")
     except Exception as e:
-        print(f"Notice: Failed to load GCP service account from JSON env var: {e}")
+        print(f"[AUTH ERROR] Failed to process GCP_SERVICE_ACCOUNT_JSON env var: {e}")
 
 if not gcp_credentials and svc_key_path and os.path.exists(svc_key_path):
     try:
@@ -35,8 +47,9 @@ if not gcp_credentials and svc_key_path and os.path.exists(svc_key_path):
             svc_key_path, scopes=["https://www.googleapis.com/auth/cloud-platform"]
         )
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = svc_key_path
+        print(f"[AUTH SUCCESS] Loaded GCP credentials from file: '{svc_key_path}'.")
     except Exception as e:
-        print(f"Notice: Failed to load GCP service account from file '{svc_key_path}': {e}")
+        print(f"[AUTH ERROR] Failed to load GCP credentials from file '{svc_key_path}': {e}")
 
 try:
     from google import genai

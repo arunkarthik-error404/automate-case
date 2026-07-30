@@ -15,41 +15,60 @@ load_dotenv()
 import tempfile
 from google.oauth2 import service_account
 
-# Service Account credentials handling (File path OR raw JSON in env var)
-svc_key_json = os.getenv("GCP_SERVICE_ACCOUNT_JSON") or os.getenv("GOOGLE_CREDENTIALS_JSON")
-svc_key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+def get_gcp_credentials():
+    svc_key_json = os.getenv("GCP_SERVICE_ACCOUNT_JSON") or os.getenv("GOOGLE_CREDENTIALS_JSON")
+    svc_key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
-gcp_credentials = None
+    # If local path in env var doesn't exist on this machine, clean it up
+    if svc_key_path and not os.path.exists(svc_key_path):
+        os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
+        svc_key_path = None
 
-# If local path in env var doesn't exist on this machine (e.g. Windows path on Linux container), clean it up
-if svc_key_path and not os.path.exists(svc_key_path):
-    os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
-    svc_key_path = None
+    if svc_key_json:
+        try:
+            raw_str = svc_key_json.strip()
+            if (raw_str.startswith('"') and raw_str.endswith('"')) or (raw_str.startswith("'") and raw_str.endswith("'")):
+                raw_str = raw_str[1:-1].strip()
+            
+            try:
+                info = json.loads(raw_str)
+            except Exception:
+                fixed_str = raw_str.replace('\\n', '\n')
+                info = json.loads(fixed_str)
 
-if svc_key_json:
-    try:
-        clean_json = svc_key_json.strip()
-        info = json.loads(clean_json)
-        tmp_file = os.path.join(tempfile.gettempdir(), "gcp_service_account.json")
-        with open(tmp_file, "w", encoding="utf-8") as f:
-            json.dump(info, f)
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp_file
-        gcp_credentials = service_account.Credentials.from_service_account_file(
-            tmp_file, scopes=["https://www.googleapis.com/auth/cloud-platform"]
-        )
-        print(f"[AUTH SUCCESS] Written GCP credentials from env var to '{tmp_file}'.")
-    except Exception as e:
-        print(f"[AUTH ERROR] Failed to process GCP_SERVICE_ACCOUNT_JSON env var: {e}")
+            if isinstance(info, str):
+                info = json.loads(info)
 
-if not gcp_credentials and svc_key_path and os.path.exists(svc_key_path):
-    try:
-        gcp_credentials = service_account.Credentials.from_service_account_file(
-            svc_key_path, scopes=["https://www.googleapis.com/auth/cloud-platform"]
-        )
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = svc_key_path
-        print(f"[AUTH SUCCESS] Loaded GCP credentials from file: '{svc_key_path}'.")
-    except Exception as e:
-        print(f"[AUTH ERROR] Failed to load GCP credentials from file '{svc_key_path}': {e}")
+            if "private_key" in info and isinstance(info["private_key"], str):
+                info["private_key"] = info["private_key"].replace("\\n", "\n")
+
+            tmp_file = os.path.join(tempfile.gettempdir(), "gcp_service_account.json")
+            with open(tmp_file, "w", encoding="utf-8") as f:
+                json.dump(info, f)
+
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp_file
+            creds = service_account.Credentials.from_service_account_info(
+                info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+            print(f"[AUTH SUCCESS] Loaded GCP service account credentials for '{info.get('client_email')}' via env var.")
+            return creds
+        except Exception as e:
+            print(f"[AUTH ERROR] Failed to parse GCP_SERVICE_ACCOUNT_JSON env var: {e}")
+
+    if svc_key_path and os.path.exists(svc_key_path):
+        try:
+            creds = service_account.Credentials.from_service_account_file(
+                svc_key_path, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = svc_key_path
+            print(f"[AUTH SUCCESS] Loaded GCP service account credentials from file '{svc_key_path}'.")
+            return creds
+        except Exception as e:
+            print(f"[AUTH ERROR] Failed to load GCP service account from file '{svc_key_path}': {e}")
+
+    return None
+
+gcp_credentials = get_gcp_credentials()
 
 try:
     from google import genai
@@ -79,23 +98,23 @@ class CaseChatbot:
         if GENAI_NEW_SDK:
             try:
                 if gcp_credentials:
-                    print(f"Initializing Gemini Client via Vertex AI Credentials (Project: {project_id})...")
+                    print(f"Initializing Gemini Client via Vertex AI Service Account (Project: {project_id})...")
                     self.client = genai.Client(
                         vertexai=True,
                         project=project_id,
                         location=location,
                         credentials=gcp_credentials
                     )
+                elif api_key:
+                    print("Initializing Gemini Client via API Key...")
+                    self.client = genai.Client(api_key=api_key)
                 elif use_vertex:
-                    print(f"Initializing Gemini Client via Vertex AI default credentials (Project: {project_id})...")
+                    print(f"Attempting Gemini Client via default Vertex AI ADC (Project: {project_id})...")
                     self.client = genai.Client(
                         vertexai=True,
                         project=project_id,
                         location=location
                     )
-                elif api_key:
-                    print("Initializing Gemini Client via API Key...")
-                    self.client = genai.Client(api_key=api_key)
             except Exception as e:
                 print(f"GenAI Client initialization notice: {e}")
 

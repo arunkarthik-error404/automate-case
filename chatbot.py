@@ -12,23 +12,31 @@ from db_search_tool import DBSearchTool
 
 load_dotenv()
 
-import tempfile
+from google.oauth2 import service_account
 
 # Service Account credentials handling (File path OR raw JSON in env var)
 svc_key_json = os.getenv("GCP_SERVICE_ACCOUNT_JSON") or os.getenv("GOOGLE_CREDENTIALS_JSON")
 svc_key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
-if svc_key_json and not (svc_key_path and os.path.exists(svc_key_path)):
+gcp_credentials = None
+
+if svc_key_json:
     try:
-        tmp_key_file = os.path.join(tempfile.gettempdir(), "gcp_service_account.json")
-        with open(tmp_key_file, "w", encoding="utf-8") as f:
-            f.write(svc_key_json)
-        svc_key_path = tmp_key_file
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp_key_path
+        info = json.loads(svc_key_json)
+        gcp_credentials = service_account.Credentials.from_service_account_info(
+            info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
     except Exception as e:
-        print(f"Error writing service account JSON from env var: {e}")
-elif svc_key_path and os.path.exists(svc_key_path):
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = svc_key_path
+        print(f"Notice: Failed to load GCP service account from JSON env var: {e}")
+
+if not gcp_credentials and svc_key_path and os.path.exists(svc_key_path):
+    try:
+        gcp_credentials = service_account.Credentials.from_service_account_file(
+            svc_key_path, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = svc_key_path
+    except Exception as e:
+        print(f"Notice: Failed to load GCP service account from file '{svc_key_path}': {e}")
 
 try:
     from google import genai
@@ -57,8 +65,16 @@ class CaseChatbot:
 
         if GENAI_NEW_SDK:
             try:
-                if use_vertex or svc_key_path:
-                    print(f"Initializing Gemini Client via Vertex AI (Service Account: {svc_key_path}, Project: {project_id})...")
+                if gcp_credentials:
+                    print(f"Initializing Gemini Client via Vertex AI Credentials (Project: {project_id})...")
+                    self.client = genai.Client(
+                        vertexai=True,
+                        project=project_id,
+                        location=location,
+                        credentials=gcp_credentials
+                    )
+                elif use_vertex:
+                    print(f"Initializing Gemini Client via Vertex AI default credentials (Project: {project_id})...")
                     self.client = genai.Client(
                         vertexai=True,
                         project=project_id,

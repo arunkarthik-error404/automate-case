@@ -401,7 +401,8 @@ function initAiChatbot() {
       if (data.answer) {
         appendMessage(data.answer, 'bot');
       } else {
-        appendMessage(data.error || 'Unable to retrieve answer.', 'bot');
+        const msg = data.details ? `${data.error}\nDetails: ${data.details}` : (data.error || 'Unable to retrieve answer.');
+        appendMessage(msg, 'bot');
       }
     } catch (err) {
       removeMessage(loadingId);

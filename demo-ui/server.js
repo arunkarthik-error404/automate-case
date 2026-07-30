@@ -298,11 +298,27 @@ function getPythonExecutable() {
   if (fs.existsSync(winVenv)) return winVenv;
   const linuxVenv = path.join(__dirname, '..', 'venv', 'bin', 'python');
   if (fs.existsSync(linuxVenv)) return linuxVenv;
-  return 'python3';
+  return process.platform === 'win32' ? 'python' : 'python3';
 }
 
-const PYTHON_PATH = getPythonExecutable();
-const CHATBOT_SCRIPT = path.join(__dirname, '..', 'chatbot.py');
+function runPythonChatbot(prompt, callback) {
+  const pyCmd = getPythonExecutable();
+  const scriptPath = path.join(__dirname, '..', 'chatbot.py');
+  const options = {
+    cwd: path.join(__dirname, '..'),
+    env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+  };
+
+  execFile(pyCmd, [scriptPath, prompt], options, (error, stdout, stderr) => {
+    if (error && (error.code === 'ENOENT' || error.message.includes('ENOENT'))) {
+      const fallbackCmd = pyCmd === 'python3' ? 'python' : 'python3';
+      console.log(`Primary python '${pyCmd}' failed with ENOENT. Retrying with fallback '${fallbackCmd}'...`);
+      execFile(fallbackCmd, [scriptPath, prompt], options, callback);
+    } else {
+      callback(error, stdout, stderr);
+    }
+  });
+}
 
 app.post('/api/chat', (req, res) => {
   const { prompt } = req.body;
@@ -310,16 +326,14 @@ app.post('/api/chat', (req, res) => {
     return res.status(400).json({ error: 'Prompt string is required.' });
   }
 
-  execFile(PYTHON_PATH, [CHATBOT_SCRIPT, prompt], { 
-    cwd: path.join(__dirname, '..'),
-    env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
-  }, (error, stdout, stderr) => {
+  runPythonChatbot(prompt, (error, stdout, stderr) => {
     if (error) {
-      console.error('Chatbot error:', stderr || error.message);
-      return res.status(500).json({ error: 'Failed to process AI chat query.', details: stderr || error.message });
+      const details = stderr || error.message || String(error);
+      console.error('Chatbot error:', details);
+      return res.status(500).json({ error: 'Failed to process AI chat query.', details: details });
     }
 
-    const output = stdout.toString();
+    const output = stdout ? stdout.toString() : '';
     const marker = '=== AI CHATBOT RESPONSE ===';
     let answer = output;
     if (output.includes(marker)) {

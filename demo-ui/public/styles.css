@@ -1240,16 +1240,39 @@ body {
 }
 
 .source-file-badge {
-  display: inline-block;
-  background: rgba(99, 102, 241, 0.18);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(99, 102, 241, 0.2);
   color: #a5b4fc;
-  border: 1px solid rgba(99, 102, 241, 0.35);
-  border-radius: 4px;
-  padding: 2px 7px;
-  font-size: 0.78rem;
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
   font-family: inherit;
-  margin: 3px 3px 3px 0;
+  font-weight: 500;
+  margin: 4px 3px 4px 0;
   word-break: break-all;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+}
+
+.source-file-badge:hover {
+  background: rgba(99, 102, 241, 0.35);
+  border-color: rgba(99, 102, 241, 0.7);
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+.source-file-badge .view-hint {
+  font-size: 0.7rem;
+  opacity: 0.85;
+  background: rgba(255, 255, 255, 0.12);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 600;
 }
 
 .loading-pulse {

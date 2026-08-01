@@ -439,6 +439,30 @@ function initAiChatbot() {
     }
   }
 
+  async function openPdfByName(filename) {
+    try {
+      const res = await fetch(`/api/pdf-url?filename=${encodeURIComponent(filename)}`);
+      const data = await res.json();
+      if (data.url) {
+        openModal({ name: data.filename || filename, url: data.url });
+      } else {
+        alert(`PDF file "${filename}" could not be located on server.`);
+      }
+    } catch (err) {
+      console.error('Error opening PDF:', err);
+    }
+  }
+
+  messagesContainer.addEventListener('click', (e) => {
+    const btn = e.target.closest('.pdf-open-btn');
+    if (btn) {
+      const filename = btn.getAttribute('data-filename');
+      if (filename) {
+        openPdfByName(filename);
+      }
+    }
+  });
+
   function formatChatMarkdown(text) {
     if (!text) return '';
 
@@ -456,11 +480,11 @@ function initAiChatbot() {
     // Convert bold text **text**
     html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
 
-    // Convert Source File tags (📄 **Source File:** `file.pdf` or `file.pdf`)
+    // Convert Source File tags into interactive clickable buttons
     html = html.replace(/(?:📄\s*)?(?:<strong>Source File(?:s)?:<\/strong>|Source File(?:s)?:)\s*`?([a-zA-Z0-9_\-\.\s\(\)]+\.pdf)`?/gi, 
-      '<span class="source-file-badge">📄 $1</span>');
+      '<button type="button" class="source-file-badge pdf-open-btn" data-filename="$1" title="Click to view PDF in modal">📄 $1 <span class="view-hint">🔍 View PDF</span></button>');
     html = html.replace(/`([a-zA-Z0-9_\-\.\s\(\)]+\.pdf)`/gi, 
-      '<span class="source-file-badge">📄 $1</span>');
+      '<button type="button" class="source-file-badge pdf-open-btn" data-filename="$1" title="Click to view PDF in modal">📄 $1 <span class="view-hint">🔍 View PDF</span></button>');
 
     // Inline code `code`
     html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');

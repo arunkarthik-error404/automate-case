@@ -23,14 +23,57 @@ const PDF_BASE_URL = process.env.PDF_BASE_URL || process.env.CLOUDFLARE_R2_URL;
 // Serve static frontend
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Serve PDF files from local reports directory OR redirect to Cloud Storage (Cloudflare R2 / S3)
+// Serve PDF files from Cloud Storage (Cloudflare R2 / S3) OR dynamically locate local PDFs across project directories
 app.use('/pdfs', (req, res, next) => {
   if (PDF_BASE_URL) {
     const targetUrl = `${PDF_BASE_URL.replace(/\/$/, '')}${req.url}`;
     return res.redirect(targetUrl);
   }
+
+  const reqPath = decodeURIComponent(req.path);
+  const fileName = path.basename(reqPath);
+
+  const searchDirs = [
+    REPORTS_BASE,
+    path.join(__dirname, '..', 'downloads'),
+    path.join(__dirname, '..', 'automation', 'downloads'),
+    path.join(__dirname, '..')
+  ];
+
+  for (const baseDir of searchDirs) {
+    if (!fs.existsSync(baseDir)) continue;
+
+    // 1. Direct path match inside base directory
+    const directPath = path.join(baseDir, reqPath.replace(/^\//, ''));
+    if (fs.existsSync(directPath) && fs.statSync(directPath).isFile()) {
+      return res.sendFile(directPath);
+    }
+
+    // 2. Recursive search by filename
+    const findFile = (dir) => {
+      try {
+        const items = fs.readdirSync(dir, { withFileTypes: true });
+        for (const item of items) {
+          const full = path.join(dir, item.name);
+          if (item.isDirectory()) {
+            const found = findFile(full);
+            if (found) return found;
+          } else if (item.name.toLowerCase() === fileName.toLowerCase()) {
+            return full;
+          }
+        }
+      } catch (e) {}
+      return null;
+    };
+
+    const matchedFile = findFile(baseDir);
+    if (matchedFile) {
+      return res.sendFile(matchedFile);
+    }
+  }
+
   next();
-}, express.static(REPORTS_BASE));
+});
 
 // ─── Data Mapping ────────────────────────────────────────────────
 
@@ -342,6 +385,63 @@ app.get('/api/stats', (req, res) => {
     totalEntities: Object.keys(ENTITY_MAP).length,
     totalDocuments: totalPdfs
   });
+});
+
+// Helper: Find URL for a given PDF filename across directory structure or manifest
+function findPdfUrlByName(filename) {
+  if (!filename) return null;
+  const targetName = path.basename(filename).toLowerCase().trim();
+
+  // Search local directory recursively
+  if (fs.existsSync(REPORTS_BASE)) {
+    const searchDir = (dir) => {
+      const items = fs.readdirSync(dir, { withFileTypes: true });
+      for (const item of items) {
+        const fullPath = path.join(dir, item.name);
+        if (item.isDirectory()) {
+          const found = searchDir(fullPath);
+          if (found) return found;
+        } else if (item.name.toLowerCase() === targetName) {
+          const relativePath = path.relative(REPORTS_BASE, fullPath).replace(/\\/g, '/');
+          return '/pdfs/' + encodeURIComponent(relativePath).replace(/%2F/g, '/');
+        }
+      }
+      return null;
+    };
+    const found = searchDir(REPORTS_BASE);
+    if (found) return found;
+  }
+
+  // Fallback: Search in MANIFEST
+  if (MANIFEST) {
+    for (const files of Object.values(MANIFEST)) {
+      for (const file of files) {
+        if (file.name.toLowerCase() === targetName) {
+          return '/pdfs/' + encodeURIComponent(file.relativePath).replace(/%2F/g, '/');
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+// ─── API: Resolve PDF URL by Filename ───────────────────────────
+
+app.get('/api/pdf-url', (req, res) => {
+  const { filename } = req.query;
+  if (!filename) {
+    return res.status(400).json({ error: 'Filename parameter is required.' });
+  }
+
+  const url = findPdfUrlByName(filename);
+  if (url) {
+    res.json({ filename, url });
+  } else {
+    // If not found in local map/manifest, construct direct fallback path
+    const fallbackUrl = '/pdfs/' + encodeURIComponent(filename);
+    res.json({ filename, url: fallbackUrl, fallback: true });
+  }
 });
 
 // ─── API: AI Chatbot Endpoint ───────────────────────────────────

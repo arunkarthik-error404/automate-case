@@ -185,7 +185,7 @@ class CaseChatbot:
         else:
             chunks = self.search_tool.search_similar_chunks(
                 query=user_query,
-                top_k=8,
+                top_k=15,
                 father_name=father_name,
                 state=state,
                 entity_name=entity_name

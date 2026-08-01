@@ -38,10 +38,6 @@ def main():
         print("★"*70)
         
         for person in PERSONS:
-            if person == "G. Janardhan Reddy":
-                print(f"  ℹ  Skipping {person} (already completed)")
-                continue
-
             # High Court searches (Karnataka Bengaluru & Telangana)
             for (label, court_p, bench_p) in PERSON_HC_COURTS:
                 found = search_hc(driver, person, label, court_p, bench_p)

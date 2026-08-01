@@ -12,9 +12,12 @@ from rag.chunker import DocumentChunker
 from rag.embeddings import EmbeddingManager
 from setup_db import connect_postgres, DB_NAME, SQLITE_DB_PATH, init_sqlite_fallback
 
+default_search_reports = os.path.join(os.path.dirname(__file__), "Search Reports-20260730T080443Z-1-001")
+default_downloads = os.path.join(os.path.dirname(__file__), "automation", "downloads")
+
 DEFAULT_REPORTS_DIR = os.getenv(
-    "REPORTS_DIR", 
-    os.path.join(os.path.dirname(__file__), "Search Reports-20260730T080443Z-1-001")
+    "REPORTS_DIR",
+    default_search_reports if os.path.exists(default_search_reports) else default_downloads
 )
 
 def ingest_to_postgres(pdf_files, extractor, chunker, embedder, force=False):

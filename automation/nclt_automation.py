@@ -27,7 +27,7 @@ Features:
 - Automatically handles result tables, PDF/detail captures, and Back button form resets
 """
 
-import os, sys, time, re, shutil, argparse
+import os, sys, time, re, shutil, argparse, base64
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urljoin
@@ -46,7 +46,33 @@ from webdriver_manager.chrome import ChromeDriverManager
 BASE_URL     = "https://nclt.gov.in/party-name-wise"
 DOWNLOAD_DIR = Path(__file__).parent / "downloads"
 START_YEAR   = 2026
-END_YEAR     = 2017
+END_YEAR     = 2000  # 2000 to 2026 (20 years / 27 year span)
+
+def save_page_as_pdf_via_print(driver, filepath):
+    """
+    Saves the currently rendered page/view to a PDF file using Chrome DevTools Protocol (CDP) Page.printToPDF.
+    This provides the Print -> Save to PDF fallback when no clickable links are available.
+    """
+    try:
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        print_options = {
+            "printBackground": True,
+            "paperWidth": 8.27,    # A4 width in inches
+            "paperHeight": 11.69,  # A4 height in inches
+            "marginTop": 0.4,
+            "marginBottom": 0.4,
+            "marginLeft": 0.4,
+            "marginRight": 0.4,
+        }
+        result = driver.execute_cdp_cmd("Page.printToPDF", print_options)
+        pdf_bytes = base64.b64decode(result['data'])
+        with open(filepath, "wb") as f:
+            f.write(pdf_bytes)
+        log(f"      ✓ Saved via Print-to-PDF: {filepath.name}")
+        return True
+    except Exception as e:
+        log(f"      ⚠ Print-to-PDF error: {e}")
+        return False
 
 # (bench_label, bench_option_value)
 NCLT_BENCHES = [
@@ -205,40 +231,53 @@ def search_nclt_company_bench(driver, company_name, bench_label, bench_val):
         for status_val, status_label in [("P", "Pending"), ("D", "Disposed")]:
             log(f"\n  ▶ Year {year} ({status_label})")
 
-            if need_full_load or "party-name-wise-search" in driver.current_url:
-                try:
-                    driver.get(BASE_URL)
+            item_completed = False
+            item_attempt = 0
+            while not item_completed:
+                item_attempt += 1
+                if item_attempt > 1:
+                    log(f"    [Attempt {item_attempt} for Year {year} ({status_label}) — retrying]")
+
+                if need_full_load or "party-name-wise-search" in driver.current_url:
+                    try:
+                        driver.get(BASE_URL)
+                        time.sleep(2)
+                    except Exception as e:
+                        log(f"  ⚠ Failed loading {BASE_URL}: {e}")
+                        time.sleep(3)
+                        continue
+
+                # Fill form
+                if not fill_nclt_form(driver, company_name, bench_val, year, status_val=status_val):
+                    log("  ✗ Form fill failed — retrying same year/status")
+                    need_full_load = True
                     time.sleep(2)
-                except Exception as e:
-                    log(f"  ⚠ Failed loading {BASE_URL}: {e}")
-                    time.sleep(3)
                     continue
 
-            # Fill form
-            if not fill_nclt_form(driver, company_name, bench_val, year, status_val=status_val):
-                log("  ✗ Form fill failed — retrying")
-                need_full_load = True
-                continue
+                log(f"  ✓ Form ready: company='{company_name}' bench={bench_label} year={year} status={status_label}")
 
-            log(f"  ✓ Form ready: company='{company_name}' bench={bench_label} year={year} status={status_label}")
+                # Submit search
+                try:
+                    btn = driver.find_element(By.CSS_SELECTOR, "#search-case-number-form button[type='submit']")
+                    safe_click(driver, btn)
+                    time.sleep(3)
+                except Exception as e:
+                    log(f"  ✗ Search button click error: {e}")
+                    need_full_load = True
+                    time.sleep(2)
+                    continue
 
-            # Submit search
-            try:
-                btn = driver.find_element(By.CSS_SELECTOR, "#search-case-number-form button[type='submit']")
-                safe_click(driver, btn)
-                time.sleep(3)
-            except Exception as e:
-                log(f"  ✗ Search button click error: {e}")
-                need_full_load = True
-                continue
-
-            # Check Results Page
-            try:
-                WebDriverWait(driver, 10).until(
-                    lambda d: "party-name-wise-search" in d.current_url or len(d.find_elements(By.TAG_NAME, "table")) > 0
-                )
-            except Exception:
-                log("  ⚠ Response timeout or page did not load search results")
+                # Check Results Page
+                try:
+                    WebDriverWait(driver, 10).until(
+                        lambda d: "party-name-wise-search" in d.current_url or len(d.find_elements(By.TAG_NAME, "table")) > 0
+                    )
+                    item_completed = True
+                except Exception:
+                    log("  ⚠ Response timeout — retrying same year/status")
+                    need_full_load = True
+                    time.sleep(2)
+                    continue
 
             # Parse results table
             tables = driver.find_elements(By.TAG_NAME, "table")
@@ -263,10 +302,6 @@ def search_nclt_company_bench(driver, company_name, bench_label, bench_val):
                     for idx, (r_el, cells) in enumerate(data_rows):
                         case_label = f"{safe_name(company_name)}_{year}_{status_label}_case{idx+1}"
                         log(f"    → Case {idx+1}: {cells[:4]}")
-
-                        # Save text summary of case
-                        summary_fp = save_dir / f"{case_label}_summary.txt"
-                        summary_fp.write_text(" | ".join(cells), encoding="utf-8")
 
                         # Check for links or download buttons inside the row
                         action_links = r_el.find_elements(By.TAG_NAME, "a")
@@ -299,6 +334,10 @@ def search_nclt_company_bench(driver, company_name, bench_label, bench_val):
 
                         if dl_count > 0:
                             log(f"      Downloaded {dl_count} document(s)")
+                        else:
+                            log("      ℹ No direct PDF links found — saving case view via Print to PDF...")
+                            print_fp = save_dir / f"{case_label}_printed_view.pdf"
+                            save_page_as_pdf_via_print(driver, print_fp)
                 else:
                     log(f"  ℹ  No records for {year} ({status_label})")
             else:

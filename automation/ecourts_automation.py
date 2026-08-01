@@ -10,7 +10,7 @@ CAPTCHA: Auto-solved using ddddocr OCR. Falls back to manual input if OCR fails.
 PDFs   : Saved to .\downloads\<court>\<name>\
 """
 
-import os, sys, time, re, shutil, io
+import os, sys, time, re, shutil, io, base64
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urljoin
@@ -45,7 +45,7 @@ except ImportError:
 BASE_URL    = "https://hcservices.ecourts.gov.in/hcservices/main.php"
 DIST_URL    = "https://services.ecourts.gov.in/ecourtindia_v6/"
 DOWNLOAD_DIR = Path(__file__).parent / "downloads"
-MAX_YEARS   = 7
+MAX_YEARS   = 27  # 2026 down to 2000 (20 years / 27 year span)
 START_YEAR  = 2026
 WAIT        = 20   # element wait timeout seconds
 SHORT_WAIT  = 6
@@ -587,26 +587,68 @@ def read_captcha_image_bytes(driver):
     return None
 
 
+def preprocess_captcha_image(img_bytes):
+    """Enhance contrast and binarize noisy/distorted CAPTCHA image using PIL."""
+    try:
+        from PIL import Image, ImageEnhance
+        img = Image.open(io.BytesIO(img_bytes)).convert("L")
+        enh = ImageEnhance.Contrast(img)
+        img = enh.enhance(2.5)
+        img = img.point(lambda p: 255 if p > 140 else 0)
+        out_buf = io.BytesIO()
+        img.save(out_buf, format="PNG")
+        return out_buf.getvalue()
+    except Exception:
+        return img_bytes
+
 def ocr_solve(driver):
     """
-    Try to solve the CAPTCHA automatically using ddddocr.
-    Returns the predicted text, or None if OCR is unavailable / image not found.
+    Try to solve the CAPTCHA automatically using ddddocr with PIL preprocessing.
+    If the image is distorted or unreadable (<4 chars or noise), automatically refreshes the CAPTCHA.
     """
     if not OCR_AVAILABLE:
         return None
-    try:
-        img_bytes = read_captcha_image_bytes(driver)
-        if img_bytes is None:
-            log("    OCR: could not locate captcha image element")
-            return None
-        result = _ocr.classification(img_bytes)
-        # Strip spaces and common OCR noise
-        result = result.strip().replace(" ", "")
-        log(f"    OCR solved: '{result}'")
-        return result if result else None
-    except Exception as e:
-        log(f"    OCR error: {e}")
-        return None
+
+    for attempt in range(1, 10):
+        try:
+            img_bytes = read_captcha_image_bytes(driver)
+            if img_bytes is None:
+                log("    OCR: could not locate captcha image element — refreshing captcha")
+                refresh_captcha(driver)
+                time.sleep(1.5)
+                continue
+
+            # 1. Raw classification
+            raw_result = _ocr.classification(img_bytes).strip().replace(" ", "")
+            clean_raw = re.sub(r'[^a-zA-Z0-9]', '', raw_result)
+            alt_keywords = ["enter", "character", "image", "select", "audio", "captcha", "type", "hear"]
+            is_alt_raw = len(clean_raw) > 8 or any(w in raw_result.lower() for w in alt_keywords)
+
+            if not is_alt_raw and 4 <= len(clean_raw) <= 7:
+                log(f"    OCR solved (raw): '{clean_raw}'")
+                return clean_raw
+
+            # 2. Preprocessed classification
+            prep_bytes = preprocess_captcha_image(img_bytes)
+            prep_result = _ocr.classification(prep_bytes).strip().replace(" ", "")
+            clean_prep = re.sub(r'[^a-zA-Z0-9]', '', prep_result)
+            is_alt_prep = len(clean_prep) > 8 or any(w in prep_result.lower() for w in alt_keywords)
+
+            if not is_alt_prep and 4 <= len(clean_prep) <= 7:
+                log(f"    OCR solved (preprocessed): '{clean_prep}'")
+                return clean_prep
+
+            # Distorted/unrecognizable image — refresh captcha to get a cleaner one
+            log(f"    ⚠ CAPTCHA distorted/unrecognizable (attempt {attempt}/10) — refreshing CAPTCHA...")
+            refresh_captcha(driver)
+            time.sleep(1.5)
+
+        except Exception as e:
+            log(f"    OCR error (attempt {attempt}): {e}")
+            refresh_captcha(driver)
+            time.sleep(1.5)
+
+    return None
 
 
 def refresh_captcha(driver):
@@ -680,6 +722,8 @@ def _enter_cap_and_go(driver, cap_text):
                 return "bad_captcha"
             if any(p in alert_text for p in ["no record", "no case", "not found"]):
                 return "no_records"
+            if any(p in alert_text for p in ["invalid", "wrong", "mismatch", "error", "captcha"]):
+                return "bad_captcha"
         except Exception:
             pass
 
@@ -693,9 +737,9 @@ def _enter_cap_and_go(driver, cap_text):
                     if m_text:
                         log(f"    ⚠ DOM Modal text: '{m_text[:60]}'")
                         dismiss_popup(driver)
-                        if any(p in m_text for p in ["invalid", "wrong", "mismatch"]):
+                        if any(p in m_text for p in ["invalid", "wrong", "mismatch", "captcha", "error", "something wrong"]):
                             return "bad_captcha"
-                        if any(p in m_text for p in ["no record", "no case", "not found", "error"]):
+                        if any(p in m_text for p in ["no record", "no case", "not found"]):
                             return "no_records"
         except Exception:
             pass
@@ -706,11 +750,12 @@ def _enter_cap_and_go(driver, cap_text):
         except Exception:
             continue
 
-        # Bad captcha check
+        # Check for error / bad captcha text
         if any(p in body for p in ["invalid captcha", "wrong captcha",
                                     "captcha mismatch", "captcha error",
-                                    "enter correct captcha"]):
-            log(f"    ✗ Bad captcha: '{cap_text}'")
+                                    "enter correct captcha", "there is an error",
+                                    "something went wrong", "try again"]):
+            log(f"    ✗ Error / Bad captcha on page for captcha: '{cap_text}'")
             return "bad_captcha"
 
         # Check for case results table / View buttons
@@ -723,15 +768,15 @@ def _enter_cap_and_go(driver, cap_text):
         if views:
             return "found"
 
-        # Check explicit no records / error text on page
+        # Check explicit no records text ONLY
         no_rec = ["no records found", "no case found", "record not found",
-                  "total number of cases : 0", "0 cases found", "no data", "there is an error"]
+                  "total number of cases : 0", "0 cases found"]
         if any(p in body for p in no_rec):
             return "no_records"
 
     # Timed out waiting after 20s
-    log("    ⚠ Search result response timed out (20s)")
-    return "no_records"
+    log("    ⚠ Search result response timed out (20s) — returning error to retry year")
+    return "error"
 
 
 def do_captcha_and_go(driver):
@@ -778,6 +823,32 @@ def do_captcha_and_go(driver):
 #  PDF DOWNLOAD
 # ─────────────────────────────────────────────────────────────────────
 
+def save_page_as_pdf_via_print(driver, filepath):
+    """
+    Saves the currently rendered page/view/modal to a PDF file using Chrome DevTools Protocol (CDP) Page.printToPDF.
+    This provides the Print -> Save to PDF fallback when no clickable links are available.
+    """
+    try:
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        print_options = {
+            "printBackground": True,
+            "paperWidth": 8.27,    # A4 width in inches
+            "paperHeight": 11.69,  # A4 height in inches
+            "marginTop": 0.4,
+            "marginBottom": 0.4,
+            "marginLeft": 0.4,
+            "marginRight": 0.4,
+        }
+        result = driver.execute_cdp_cmd("Page.printToPDF", print_options)
+        pdf_bytes = base64.b64decode(result['data'])
+        with open(filepath, "wb") as f:
+            f.write(pdf_bytes)
+        log(f"        ✓ Saved via Print-to-PDF: {filepath.name}")
+        return True
+    except Exception as e:
+        log(f"        ✗ Print-to-PDF error: {e}")
+        return False
+
 def dl_via_requests(driver, url, filepath):
     try:
         sess = requests.Session()
@@ -807,14 +878,14 @@ def safe_click(driver, element):
         driver.execute_script("arguments[0].click();", element)
 
 def handle_view_page(driver, save_dir, case_label):
-    """On the case detail page, find and download all Order PDFs / details."""
+    """On the case detail page, find and download all Order PDFs / details, with Print-to-PDF fallback."""
     time.sleep(3)
     handles = driver.window_handles
     if len(handles) > 1:
         driver.switch_to.window(handles[-1])
         time.sleep(2)
 
-    order_xpath = "//table//tr[td]//a[contains(normalize-space(.),'View')]"
+    order_xpath = "//table//tr[td]//a[contains(normalize-space(.),'View') or contains(normalize-space(.),'Order') or contains(@href,'pdf') or contains(@onclick,'pdf') or contains(@onclick,'display')]"
     links = driver.find_elements(By.XPATH, order_xpath)
     num_orders = len(links)
     log(f"      Orders found: {num_orders}")
@@ -890,10 +961,9 @@ def handle_view_page(driver, save_dir, case_label):
                         ok = dl_via_requests(driver, cur_url, fp)
                         if ok: dl_count += 1; captured = True
                     else:
-                        html_fp = save_dir / f"{case_label}_order{i+1}.html"
-                        html_fp.write_text(driver.page_source, encoding="utf-8")
-                        log(f"        Saved HTML: {html_fp.name}")
-                        dl_count += 1; captured = True
+                        # Fallback: Save tab content via Print-to-PDF
+                        ok = save_page_as_pdf_via_print(driver, fp)
+                        if ok: dl_count += 1; captured = True
                     driver.close()
                     driver.switch_to.window(list(set(driver.window_handles))[0])
                     break
@@ -967,12 +1037,11 @@ def handle_view_page(driver, save_dir, case_label):
                     if captured:
                         break
 
-                    # Fallback capture: If modal contains visible order text / table, save the HTML details
+                    # Fallback capture: Save modal view directly as PDF via Print-to-PDF
                     mc_text = mc.text.strip()
                     if mc_text and len(mc_text) > 20:
-                        html_fp = save_dir / f"{case_label}_order{i+1}_details.html"
-                        html_fp.write_text(f"<div>{mc.get_attribute('outerHTML')}</div>", encoding="utf-8")
-                        log(f"        Saved modal details HTML: {html_fp.name}")
+                        pdf_fp = save_dir / f"{case_label}_order{i+1}_modal.pdf"
+                        save_page_as_pdf_via_print(driver, pdf_fp)
                         dl_count += 1; captured = True
                         break
 
@@ -982,10 +1051,20 @@ def handle_view_page(driver, save_dir, case_label):
                 time.sleep(1)
 
             if not captured:
-                log(f"        ⚠ Could not capture Order {i+1}")
+                log(f"        ⚠ Could not capture Order {i+1} via link — printing page view to PDF")
+                print_fp = save_dir / f"{case_label}_order{i+1}_printed.pdf"
+                if save_page_as_pdf_via_print(driver, print_fp):
+                    dl_count += 1
 
         except Exception as e:
             log(f"        ✗ Order {i+1} error: {e}")
+
+    # Fallback: If no clickable links found or no downloads occurred, save entire case detail view via Print to PDF
+    if dl_count == 0:
+        log("      ℹ No downloadable order PDF links captured — saving case view via Print to PDF option...")
+        print_fp = save_dir / f"{case_label}_printed_case_view.pdf"
+        if save_page_as_pdf_via_print(driver, print_fp):
+            dl_count += 1
 
     # Close detail tab and return to list
     handles = driver.window_handles
@@ -1044,19 +1123,20 @@ def search_hc(driver, party_name, court_label, court_partial, bench_partial):
         refresh_captcha(driver)
         time.sleep(0.5)
 
-    MAX_YEAR_RETRIES = 3
     for year in range(START_YEAR, START_YEAR - MAX_YEARS, -1):
-        year_success = False
-        for year_attempt in range(1, MAX_YEAR_RETRIES + 1):
+        year_completed = False
+        year_attempt = 0
+        while not year_completed:
+            year_attempt += 1
             if year_attempt > 1:
-                log(f"\n  ▶ Year {year} (Retry attempt {year_attempt}/{MAX_YEAR_RETRIES})")
+                log(f"\n  ▶ Year {year} (Attempt {year_attempt} — retrying year search)")
             else:
                 log(f"\n  ▶ Year {year}")
 
             try:
                 if need_full_setup:
                     if not _full_setup():
-                        log("  ✗ Setup failed — retrying year")
+                        log("  ✗ Setup failed — retrying year with fresh setup")
                         need_full_setup = True
                         time.sleep(2)
                         continue
@@ -1089,33 +1169,27 @@ def search_hc(driver, party_name, court_label, court_partial, bench_partial):
                     result = do_captcha_and_go(driver)
                     if result != "bad_captcha":
                         break
-                    for s in ["#refresh_captcha", "img[onclick*='refresh']",
-                              "button[onclick*='captcha']", ".captcha-refresh"]:
-                        try:
-                            driver.find_element(By.CSS_SELECTOR, s).click()
-                            time.sleep(1); break
-                        except Exception:
-                            continue
+                    refresh_captcha(driver)
+                    time.sleep(1)
             except Exception as e:
                 log(f"  ✗ Captcha/Network error for year {year}: {e}")
                 result = "error"
 
             if result == "no_records":
-                log(f"  ℹ  No records for {year}")
-                # Page is still on the search form — fast path next iteration
-                year_success = True
+                log(f"  ℹ  Confirmed: No records found for year {year}")
+                year_completed = True
                 break
 
             elif result != "found":
-                log(f"  ⚠  Inconclusive result for year {year} (result={result}) — retrying year with full setup")
-                need_full_setup = True   # Unknown state — reload to be safe
+                log(f"  ⚠  Inconclusive result / error for year {year} (result={result}) — retrying SAME year with full setup")
+                need_full_setup = True   # Reload page & retry same year
                 time.sleep(2)
                 continue
 
             # ── Process results ───────────────────────────────────────────
             log(f"  ✓ CASES FOUND for year {year}!")
             found_any = True
-            year_success = True
+            year_completed = True
 
             btn_xpath = "//input[@value='View']|//a[normalize-space(text())='View']"
             view_btns = driver.find_elements(By.XPATH, btn_xpath)

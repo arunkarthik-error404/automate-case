@@ -84,6 +84,15 @@ PERSONS = [
     "G. Kanaka Durga",
 ]
 
+ENTITIES = [
+    "Space World Group LLP",
+    "Space World Data Centre Private Limited",
+    "G.V.R. Electro Technics Private Limited",
+    "Sada IT Parks Private Limited",
+    "Tulip Data Centre Services Private Limited",
+    "Tulip Data Centre Private Limited",
+]
+
 # ── UTILITIES ───────────────────────────────────────────────────────
 
 def safe_name(name):
@@ -163,30 +172,61 @@ def close_error_modals(driver):
     except Exception:
         pass
 
-def is_captcha_mismatch_visible(driver):
-    """Check if a visible error modal or alert explicitly indicates invalid captcha."""
+def is_error_or_captcha_mismatch(driver):
+    """Check if a visible error modal, alert, or banner indicates invalid captcha or submission error."""
     try:
         # 1. Check browser JS Alert dialog
         try:
             alert = driver.switch_to.alert
-            txt = alert.text.lower()
-            if "captcha" in txt:
-                log(f"      ⚠ JS Alert: '{alert.text.strip()}'")
-                alert.accept()
-                return True
+            txt = alert.text.strip()
+            log(f"      ⚠ JS Alert detected: '{txt}'")
+            alert.accept()
+            return True, f"JS Alert: '{txt}'"
         except Exception:
             pass
 
         # 2. Check VISIBLE modals or alert elements on page
-        error_elements = driver.find_elements(By.CSS_SELECTOR, ".modal.show, div.modal[style*='display: block'], #errormsgmodal, #alertmodal, .alert-danger, .error-message, #errormsg")
-        for el in error_elements:
+        error_css = (
+            ".modal.show, div.modal[style*='display: block'], #errormsgmodal, #alertmodal, "
+            ".alert-danger, .error-message, #errormsg, div[id*='error'], div[class*='error'], "
+            ".toast-error, .alert-warning"
+        )
+        for el in driver.find_elements(By.CSS_SELECTOR, error_css):
             if el.is_displayed():
-                txt = el.text.lower()
-                if any(w in txt for w in ["invalid captcha", "captcha mismatch", "wrong captcha", "enter valid captcha", "captcha enter"]):
+                txt = el.text.strip()
+                txt_lower = txt.lower()
+                if any(w in txt_lower for w in [
+                    "invalid captcha", "captcha mismatch", "wrong captcha", "enter valid captcha",
+                    "captcha enter", "something wrong", "try again", "error", "server error",
+                    "too many requests", "access denied", "blocked"
+                ]):
+                    return True, f"Modal/Error: '{txt[:100]}'"
+    except Exception:
+        pass
+    return False, ""
+
+def is_explicit_no_records_found(driver):
+    """Returns True ONLY if the page explicitly states that no records/cases were found for the query."""
+    try:
+        page_text = driver.find_element(By.TAG_NAME, "body").text.lower()
+        no_record_phrases = [
+            "no record found", "record not found", "no case found", "case not found",
+            "no matching record", "no records found", "no data found", "zero records"
+        ]
+        if any(phrase in page_text for phrase in no_record_phrases):
+            return True
+        for tbl in driver.find_elements(By.TAG_NAME, "table"):
+            if tbl.is_displayed():
+                t_text = tbl.text.lower()
+                if any(phrase in t_text for phrase in no_record_phrases):
                     return True
     except Exception:
         pass
     return False
+
+def is_captcha_mismatch_visible(driver):
+    is_err, _ = is_error_or_captcha_mismatch(driver)
+    return is_err
 
 
 def wait_for_loading(driver, timeout=15):
@@ -309,15 +349,37 @@ def refresh_captcha(driver):
         pass
     return False
 
-def solve_captcha(driver):
-    """Solves image CAPTCHA using ddddocr or prompts user. Filters out OCR alt-text reads."""
-    for cap_attempt in range(2):
+def preprocess_captcha_image(img_bytes):
+    """Enhance contrast and binarize noisy/distorted CAPTCHA image using PIL."""
+    try:
+        from PIL import Image, ImageEnhance
+        img = Image.open(io.BytesIO(img_bytes)).convert("L")
+        enh = ImageEnhance.Contrast(img)
+        img = enh.enhance(2.5)
+        img = img.point(lambda p: 255 if p > 140 else 0)
+        out_buf = io.BytesIO()
+        img.save(out_buf, format="PNG")
+        return out_buf.getvalue()
+    except Exception:
+        return img_bytes
+
+def solve_captcha(driver, max_attempts=12):
+    """
+    Solves image CAPTCHA using ddddocr with PIL preprocessing.
+    If the CAPTCHA image is distorted or unrecognizable (<4 chars or noise),
+    it automatically clicks refresh_captcha(driver) to request a cleaner CAPTCHA!
+    """
+    if not OCR_AVAILABLE:
+        return ""
+
+    for cap_attempt in range(1, max_attempts + 1):
         try:
             img_els = [el for el in driver.find_elements(By.CSS_SELECTOR, "img#captcha_image, img[src*='captcha']") if el.is_displayed()]
             if not img_els:
                 img_els = driver.find_elements(By.CSS_SELECTOR, "img#captcha_image, img[src*='captcha']")
             if not img_els:
-                return ""
+                time.sleep(1.0)
+                continue
 
             img_el = img_els[0]
             img_src = img_el.get_attribute("src") or ""
@@ -329,30 +391,38 @@ def solve_captcha(driver):
             else:
                 img_bytes = img_el.screenshot_as_png
 
-            if OCR_AVAILABLE and img_bytes:
-                code = _ocr.classification(img_bytes).strip()
-                code_clean = re.sub(r'[^a-zA-Z0-9]', '', code)
-
+            if img_bytes:
+                # 1. Raw OCR classification
+                code_raw = _ocr.classification(img_bytes).strip()
+                code_clean_raw = re.sub(r'[^a-zA-Z0-9]', '', code_raw)
                 alt_keywords = ["enter", "character", "image", "select", "audio", "captcha", "type", "hear"]
-                is_alt_text = len(code_clean) > 8 or any(w in code.lower() for w in alt_keywords)
+                is_alt_raw = len(code_clean_raw) > 8 or any(w in code_raw.lower() for w in alt_keywords)
 
-                if is_alt_text:
-                    log("    ⚠ CAPTCHA OCR read alt text / image not loaded yet. Refreshing CAPTCHA...")
-                    refresh_captcha(driver)
-                    time.sleep(2)
-                    continue
+                if not is_alt_raw and 4 <= len(code_clean_raw) <= 7:
+                    log(f"    ✓ Auto CAPTCHA solved (raw): '{code_clean_raw}'")
+                    return code_clean_raw
 
-                if len(code_clean) >= 4:
-                    log(f"    Auto CAPTCHA: '{code_clean}'")
-                    return code_clean
+                # 2. Preprocessed OCR classification
+                prep_bytes = preprocess_captcha_image(img_bytes)
+                code_prep = _ocr.classification(prep_bytes).strip()
+                code_clean_prep = re.sub(r'[^a-zA-Z0-9]', '', code_prep)
+                is_alt_prep = len(code_clean_prep) > 8 or any(w in code_prep.lower() for w in alt_keywords)
+
+                if not is_alt_prep and 4 <= len(code_clean_prep) <= 7:
+                    log(f"    ✓ Auto CAPTCHA solved (preprocessed): '{code_clean_prep}'")
+                    return code_clean_prep
+
+            # Distorted/unrecognizable image — refresh CAPTCHA for a cleaner image!
+            log(f"    ⚠ CAPTCHA unrecognizable / distorted (attempt {cap_attempt}/{max_attempts}) — refreshing CAPTCHA...")
+            refresh_captcha(driver)
+            time.sleep(1.5)
 
         except Exception as e:
-            log(f"    ⚠ CAPTCHA OCR error: {e}")
+            log(f"    ⚠ CAPTCHA solve error (attempt {cap_attempt}): {e}")
+            refresh_captcha(driver)
+            time.sleep(1.5)
 
-    print("\n" + "!"*50)
-    user_code = input("  👉 Type CAPTCHA shown in browser: ").strip()
-    print("!"*50 + "\n")
-    return user_code
+    return ""
 
 def go_back_to_results(driver):
     """Click Back button on case details / 2nd page to return to search results list."""
@@ -378,11 +448,41 @@ def go_back_to_results(driver):
         log(f"        ⚠ Go back error: {e}")
         return False
 
+START_YEAR    = 2026
+END_YEAR      = 2000  # 2000 to 2026 (20 years / 27 year span)
+DEFAULT_DELAY = 4.0  # seconds pacing delay to avoid IP rate-limiting / blocking
+
+def save_page_as_pdf_via_print(driver, filepath):
+    """
+    Saves the currently rendered page/view to a PDF file using Chrome DevTools Protocol (CDP) Page.printToPDF.
+    This provides the Print -> Save to PDF fallback when no clickable links are available.
+    """
+    try:
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        print_options = {
+            "printBackground": True,
+            "paperWidth": 8.27,    # A4 width in inches
+            "paperHeight": 11.69,  # A4 height in inches
+            "marginTop": 0.4,
+            "marginBottom": 0.4,
+            "marginLeft": 0.4,
+            "marginRight": 0.4,
+        }
+        result = driver.execute_cdp_cmd("Page.printToPDF", print_options)
+        pdf_bytes = base64.b64decode(result['data'])
+        with open(filepath, "wb") as f:
+            f.write(pdf_bytes)
+        log(f"          ✓ Saved via Print-to-PDF: {filepath.name}")
+        return True
+    except Exception as e:
+        log(f"          ⚠ Print-to-PDF error: {e}")
+        return False
+
 def extract_and_download_orders_for_case(driver, save_dir, case_lbl):
     """
     In 2nd page (Case Details view):
-    Scrolls down to Final Orders / Judgements section and downloads ONLY the final court order PDF.
-    Ignores routine daily interim order logs.
+    Finds and downloads PDFs strictly from clickable links under the 'Order Details' column 
+    in the Interim Orders and Final Orders / Judgements tables (e.g. Orders, Deposition links).
     """
     dl_cnt = 0
     try:
@@ -392,33 +492,29 @@ def extract_and_download_orders_for_case(driver, save_dir, case_lbl):
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
         time.sleep(1.0)
 
-        # 1. Target Final Orders / Judgements table specifically
-        final_order_links = driver.find_elements(By.XPATH,
-            "//table[contains(translate(.,'FINAL ORDERS','final orders'),'final order') or contains(translate(.,'JUDGEMENT','judgement'),'judg')]//a[contains(translate(text(),'ORDERS','orders'),'orders') or contains(translate(text(),'VIEW','view'),'view') or contains(translate(text(),'PDF','pdf'),'pdf') or contains(@href,'pdf') or contains(@onclick,'pdf') or contains(@onclick,'display')]"
+        # Target ONLY links with text matching Orders, Deposition, Order, Judgement/Judgment under Order Details column
+        visible_order_links = []
+        raw_order_links = driver.find_elements(By.XPATH,
+            "//table//tr[td]//a[normalize-space(text())='Orders' or normalize-space(text())='Deposition' or normalize-space(text())='Order' or normalize-space(text())='Judgement' or normalize-space(text())='Judgment' or contains(translate(text(),'DEPOSITION','deposition'),'depos')] | "
+            "//table[contains(translate(.,'INTERIM ORDERS','interim orders'),'interim order') or contains(translate(.,'FINAL ORDERS','final orders'),'final order') or contains(translate(.,'JUDGEMENTS','judgements'),'judg')]//tr[td]/td[position()=3 or position()=last()]//a"
         )
-
-        if not final_order_links:
-            # Look for links directly under headings containing 'Final Order' or 'Judg'
-            final_order_links = driver.find_elements(By.XPATH,
-                "//*[contains(translate(text(),'FINAL ORDER','final order'),'final order') or contains(translate(text(),'JUDGEMENT','judgement'),'judg')]/following::a[contains(translate(text(),'ORDERS','orders'),'orders') or contains(@onclick,'display')]"
-            )
-
-        visible_order_links = [l for l in final_order_links if l.is_displayed()]
-
-        # If no Final Orders table is found, fallback to the single most recent order link
-        if not visible_order_links:
-            all_links = driver.find_elements(By.XPATH, "//a[normalize-space(text())='Orders' or normalize-space(text())='Order' or contains(text(),'Orders')]")
-            all_visible = [l for l in all_links if l.is_displayed()]
-            if all_visible:
-                visible_order_links = [all_visible[-1]]
-                log("          ℹ No 'Final Orders / Judgements' section — downloading latest single order.")
+        for a in raw_order_links:
+            if a.is_displayed() and a not in visible_order_links:
+                link_t = a.text.strip().lower()
+                # Filter out hearing history date links or general navigation links
+                if link_t in ["orders", "order", "deposition", "judgement", "judgment"] or "depos" in link_t or "order" in link_t:
+                    visible_order_links.append(a)
 
         if visible_order_links:
-            log(f"          Targeting {len(visible_order_links)} Final Order/Judgement link(s)")
+            log(f"          Targeting {len(visible_order_links)} link(s) under Order Details column")
+        else:
+            log("          ℹ No order/deposition links listed under Order Details column for this case")
+            return 0
 
         for o_idx, o_link in enumerate(visible_order_links, 1):
             pdf_saved = False
-            pdf_target_fp = save_dir / f"{case_lbl}_final_order_{o_idx}.pdf"
+            l_text = (o_link.text or "order").strip()
+            pdf_target_fp = save_dir / f"{case_lbl}_order_{o_idx}_{safe_name(l_text)}.pdf"
 
             href = (o_link.get_attribute("href") or "").strip()
             onclick = (o_link.get_attribute("onclick") or "").strip()
@@ -438,7 +534,7 @@ def extract_and_download_orders_for_case(driver, save_dir, case_lbl):
                     dl_cnt += 1
                     pdf_saved = True
 
-            # 2. If direct URL GET didn't succeed, click the Orders link element
+            # 2. If direct URL GET didn't succeed, click the link element under Order Details
             if not pdf_saved:
                 main_window = driver.current_window_handle
                 existing_windows = set(driver.window_handles)
@@ -454,9 +550,18 @@ def extract_and_download_orders_for_case(driver, save_dir, case_lbl):
                         driver.switch_to.window(new_win)
                         time.sleep(1.5)
                         tab_url = driver.current_url
-                        if dl_via_requests(driver, tab_url, pdf_target_fp):
-                            dl_cnt += 1
-                            pdf_saved = True
+                        ct = driver.execute_script("return document.contentType") or ""
+                        if "pdf" in tab_url.lower() or "pdf" in ct.lower():
+                            if dl_via_requests(driver, tab_url, pdf_target_fp):
+                                dl_cnt += 1
+                                pdf_saved = True
+                        
+                        if not pdf_saved:
+                            # Save opened order document tab via Print-to-PDF
+                            if save_page_as_pdf_via_print(driver, pdf_target_fp):
+                                dl_cnt += 1
+                                pdf_saved = True
+
                         driver.close()
                         driver.switch_to.window(main_window)
 
@@ -580,6 +685,14 @@ def fill_district_party_form(driver, person_name, year, delay=DEFAULT_DELAY):
         inp_name = [el for el in driver.find_elements(By.CSS_SELECTOR, "input[name*='petparty'], input[id*='petparty'], input[name*='party']") if el.is_displayed()]
         if not inp_name:
             inp_name = [el for el in driver.find_elements(By.XPATH, "//input[@type='text' and not(contains(@name,'captcha')) and not(contains(@name,'year'))]") if el.is_displayed()]
+
+        if not inp_name:
+            # Re-trigger party tab activation in case form returned to a different view
+            ensure_party_name_tab(driver)
+            time.sleep(1.5)
+            inp_name = [el for el in driver.find_elements(By.CSS_SELECTOR, "input[name*='petparty'], input[id*='petparty'], input[name*='party']") if el.is_displayed()]
+            if not inp_name:
+                inp_name = [el for el in driver.find_elements(By.XPATH, "//input[@type='text' and not(contains(@name,'captcha')) and not(contains(@name,'year'))]") if el.is_displayed()]
 
         if not inp_name:
             log("    ✗ Petitioner name input field not found")
@@ -734,6 +847,7 @@ def search_district_for_person(driver_or_ref, person_name, target_cfg, delay=DEF
 
         log(f"  ✓ Found {len(complex_options)} Court Complex(es) in {sel_dist_txt}")
         total_cases_found = 0
+        all_identified_cases = []
 
         for c_idx, (comp_val, comp_txt) in enumerate(complex_options, 1):
             log(f"\n  ► [{c_idx}/{len(complex_options)}] COURT COMPLEX: {comp_txt}")
@@ -788,43 +902,57 @@ def search_district_for_person(driver_or_ref, person_name, target_cfg, delay=DEF
 
                 establishment_cases = 0
 
-                # Step 6: Iterate Years (2026 -> 2020)
+                # Step 6: Iterate Years (2026 -> 2000)
                 for year in range(START_YEAR, END_YEAR - 1, -1):
                     log(f"      ▶ Year {year} for '{person_name}'")
                     time.sleep(delay)
 
-                    for attempt in range(1, 4):
+                    year_completed = False
+                    attempt = 0
+                    while not year_completed:
+                        attempt += 1
+                        if attempt > 1:
+                            log(f"        [Attempt {attempt} for Year {year} — retrying due to error/mismatch]")
+
                         try:
                             if not fill_district_party_form(driver, person_name, year, delay=delay):
-                                time.sleep(delay / 2)
+                                log("        ✗ Form fill failed — refreshing fields & retrying year")
+                                refresh_captcha(driver)
+                                time.sleep(2.0)
                                 continue
 
                             time.sleep(1.0)
                             if not find_and_click_go_button(driver):
-                                log("      ✗ Submit 'Go' button not found")
-                                time.sleep(delay)
-                                break
+                                log("        ✗ Submit 'Go' button not found — refreshing fields & retrying year")
+                                refresh_captcha(driver)
+                                time.sleep(2.0)
+                                continue
 
                             wait_for_loading(driver)
                             time.sleep(delay + random.uniform(0.5, 1.5))
-                            close_error_modals(driver)
 
-                            # Check for VISIBLE Invalid CAPTCHA alert
-                            if is_captcha_mismatch_visible(driver):
-                                log(f"      ⚠ CAPTCHA mismatch (attempt {attempt}/3) — retrying")
+                            # 1. Check for VISIBLE error modal or CAPTCHA mismatch
+                            is_err, err_msg = is_error_or_captcha_mismatch(driver)
+                            if is_err:
+                                log(f"        ⚠ {err_msg} — refreshing CAPTCHA & retrying SAME year {year}")
+                                close_error_modals(driver)
                                 refresh_captcha(driver)
-                                time.sleep(2)
+                                time.sleep(2.0)
                                 continue
 
-                            # Parse Results
+                            # 2. Check for explicit "No Record Found" message FIRST
+                            if is_explicit_no_records_found(driver):
+                                log(f"      ℹ  Confirmed: No records found for year {year}")
+                                year_completed = True
+                                break
+
+                            # 3. Parse Results table (ONLY rows with clickable View buttons)
                             tables = driver.find_elements(By.TAG_NAME, "table")
                             visible_tables = [t for t in tables if t.is_displayed()]
                             if not visible_tables:
                                 visible_tables = tables
 
-                            records_found = False
                             case_rows_info = []
-
                             for tbl in visible_tables:
                                 rows = tbl.find_elements(By.TAG_NAME, "tr")
                                 if len(rows) <= 1:
@@ -833,64 +961,49 @@ def search_district_for_person(driver_or_ref, person_name, target_cfg, delay=DEF
                                 for r in rows[1:]:
                                     cells = [td.text.strip() for td in r.find_elements(By.XPATH, "th|td")]
                                     r_text = " ".join(cells).lower()
-                                    if not cells or "no record" in r_text or "not found" in r_text or "no case" in r_text:
+                                    if not cells or "no record" in r_text or "not found" in r_text or "no case" in r_text or "select establishment" in r_text or "registration year" in r_text:
                                         continue
 
-                                    view_btns = r.find_elements(By.XPATH, ".//a[contains(translate(text(),'VIEW','view'),'view')] | .//input[@value='View' or @value='view'] | .//button[contains(translate(text(),'VIEW','view'),'view')]")
+                                    view_btns = [b for b in r.find_elements(By.XPATH, ".//a[contains(translate(text(),'VIEW','view'),'view')] | .//input[@value='View' or @value='view'] | .//button[contains(translate(text(),'VIEW','view'),'view')]") if b.is_displayed()]
                                     if view_btns:
                                         case_rows_info.append((cells, view_btns[0]))
-                                    elif len(cells) >= 3:
-                                        case_rows_info.append((cells, None))
 
                             if case_rows_info:
-                                records_found = True
                                 establishment_cases += len(case_rows_info)
                                 total_cases_found += len(case_rows_info)
-                                log(f"      ✓ {len(case_rows_info)} CASE(S) FOUND for {year}!")
+                                log(f"      ✓ {len(case_rows_info)} CASE(S) IDENTIFIED for {year} in [{est_txt}]!")
 
-                                for r_idx in range(len(case_rows_info)):
-                                    cells, view_btn = case_rows_info[r_idx]
-                                    if r_idx > 0:
-                                        tbls = [t for t in driver.find_elements(By.TAG_NAME, "table") if t.is_displayed()]
-                                        cur_btns = []
-                                        for t in tbls:
-                                            for tr in t.find_elements(By.TAG_NAME, "tr")[1:]:
-                                                v_b = tr.find_elements(By.XPATH, ".//a[contains(translate(text(),'VIEW','view'),'view')] | .//input[@value='View' or @value='view'] | .//button[contains(translate(text(),'VIEW','view'),'view')]")
-                                                if v_b:
-                                                    c_text = [td.text.strip() for td in tr.find_elements(By.XPATH, "th|td")]
-                                                    cur_btns.append((c_text, v_b[0]))
-                                        if r_idx < len(cur_btns):
-                                            cells, view_btn = cur_btns[r_idx]
+                                for r_idx, (cells, view_btn) in enumerate(case_rows_info, 1):
+                                    clean_cells = [c for c in cells if c and c.lower() != "view"]
+                                    summary_str = " | ".join(clean_cells)
+                                    log(f"        → Case {r_idx}: {summary_str}")
 
-                                    case_lbl = f"{safe_name(person_name)}_{year}_case{r_idx + 1}"
-                                    log(f"        → Case {r_idx + 1}: {' | '.join(cells[:3])}")
+                                    all_identified_cases.append({
+                                        "person": person_name,
+                                        "state": sel_state_txt,
+                                        "district": sel_dist_txt,
+                                        "complex": comp_txt,
+                                        "establishment": est_txt,
+                                        "year": year,
+                                        "case_idx": r_idx,
+                                        "summary_str": summary_str,
+                                        "details": clean_cells
+                                    })
 
-                                    sum_fp = save_dir / f"{case_lbl}_summary.txt"
-                                    sum_fp.write_text(" | ".join(cells), encoding="utf-8")
+                                year_completed = True
+                                break
 
-                                    if view_btn:
-                                        log(f"          Opening Case Details (View)...")
-                                        safe_click(driver, view_btn)
-                                        time.sleep(3.0)
-                                        wait_for_loading(driver)
-                                        close_error_modals(driver)
+                            # 3. Check for explicit "No Record Found"
+                            if is_explicit_no_records_found(driver):
+                                log(f"      ℹ  Confirmed: No records found for year {year}")
+                                year_completed = True
+                                break
 
-                                        dl_cnt = extract_and_download_orders_for_case(driver, save_dir, case_lbl)
-                                        if dl_cnt > 0:
-                                            log(f"          ✓ Downloaded {dl_cnt} document(s) for Case {r_idx + 1}")
-                                        else:
-                                            log(f"          ℹ No downloadable PDF orders found for Case {r_idx + 1}")
-
-                                        log(f"          Returning to search results list...")
-                                        go_back_to_results(driver)
-                                        time.sleep(2.0)
-                                    else:
-                                        log(f"          ⚠ View button not found for Case {r_idx + 1}")
-
-                            if not records_found:
-                                log(f"      ℹ  No records for year {year}")
-
-                            break  # year attempt finished successfully
+                            # 4. Inconclusive result (neither case rows nor explicit 'no record' found)
+                            log(f"      ⚠ Inconclusive result for year {year} (no case table & no explicit 'No Record' message) — retrying SAME year")
+                            close_error_modals(driver)
+                            refresh_captcha(driver)
+                            time.sleep(2.0)
 
                         except (WebDriverException, NoSuchWindowException) as wde:
                             log(f"      ⚠ Browser session issue ({wde.__class__.__name__}): {wde}")
@@ -908,17 +1021,46 @@ def search_district_for_person(driver_or_ref, person_name, target_cfg, delay=DEF
                             time.sleep(delay)
                             continue
 
-                # Check if cases were found in this establishment after completing ALL years (2020-2026)
                 if establishment_cases > 0:
-                    log(f"\n  ✓ Found {establishment_cases} case(s) for '{person_name}' in '{est_txt}' across years 2020-2026!")
-                    log(f"  ✓ All years (2020-2026) completed. Wrapping up search for '{person_name}' in {sel_dist_txt}.")
-                    person_done_in_district = True
-                    break
+                    log(f"      ✓ Found {establishment_cases} case(s) for '{person_name}' in establishment '{est_txt}'")
 
-            if person_done_in_district:
-                break
+        log(f"\n  ✓ Completed district search for {person_name} in {sel_state_txt}/{sel_dist_txt}. Total cases identified: {total_cases_found}")
 
-        log(f"\n  ✓ Completed district search for {person_name} in {sel_state_txt}/{sel_dist_txt}. Total cases: {total_cases_found}")
+        # ── PRINT FULL IDENTIFIED CASES CATALOG IN TERMINAL ─────────────
+        print("\n" + "═"*90)
+        print(f"  DISTRICT COURTS - IDENTIFIED CASES CATALOG FOR: '{person_name}'")
+        print(f"  LOCATION: {sel_state_txt} -> {sel_dist_txt}")
+        print(f"  TOTAL CASES IDENTIFIED: {len(all_identified_cases)}")
+        print("═"*90)
+
+        if all_identified_cases:
+            report_lines = []
+            header_str = f"DISTRICT COURTS IDENTIFIED CASES REPORT - {person_name}\nLocation: {sel_state_txt} -> {sel_dist_txt}\nTotal Cases Identified: {len(all_identified_cases)}\n" + "─"*80
+            report_lines.append(header_str)
+
+            for idx, c in enumerate(all_identified_cases, 1):
+                item_str = (
+                    f"[{idx}] COURT COMPLEX:   {c['complex']}\n"
+                    f"    ESTABLISHMENT:   {c['establishment']}\n"
+                    f"    YEAR:            {c['year']}\n"
+                    f"    CASE DETAILS:    {c['summary_str']}"
+                )
+                print(f"\n{item_str}")
+                report_lines.append(item_str)
+
+            # Save report to text file
+            try:
+                cat_dir = DOWNLOAD_DIR / "District_Courts" / safe_name(sel_state_txt) / safe_name(sel_dist_txt) / safe_name(person_name)
+                cat_dir.mkdir(parents=True, exist_ok=True)
+                cat_fp = cat_dir / f"{safe_name(person_name)}_identified_cases_catalog.txt"
+                cat_fp.write_text("\n\n".join(report_lines), encoding="utf-8")
+                print(f"\n  ✓ Catalog report saved to file: {cat_fp.resolve()}")
+            except Exception as ex_file:
+                log(f"  ⚠ Could not save catalog file: {ex_file}")
+        else:
+            print(f"  ℹ No cases found for '{person_name}' across searched years.")
+
+        print("═"*90 + "\n")
         return True
 
     except Exception as e:
@@ -970,10 +1112,11 @@ def run_district_for_persons(target_persons, delay=DEFAULT_DELAY):
 
 def main():
     parser = argparse.ArgumentParser(description="eCourts District Courts Automation (ecourtindia_v6)")
-    parser.add_argument("--person", type=str, help="Specific person name to search")
+    parser.add_argument("--person", type=str, help="Specific person or entity name to search")
     parser.add_argument("--person-index", type=int, choices=range(1, len(PERSONS) + 1),
                         help="Index of person to search (1 to 6)")
-    parser.add_argument("--all", action="store_true", help="Search all persons sequentially")
+    parser.add_argument("--entities", action="store_true", help="Search all entities instead of persons")
+    parser.add_argument("--all", action="store_true", help="Search all persons and entities sequentially")
     parser.add_argument("--delay", type=float, default=DEFAULT_DELAY, help="Pacing delay in seconds (default 4.0)")
 
     args = parser.parse_args()
@@ -982,6 +1125,10 @@ def main():
         targets = [args.person]
     elif args.person_index:
         targets = [PERSONS[args.person_index - 1]]
+    elif args.entities:
+        targets = ENTITIES
+    elif args.all:
+        targets = PERSONS + ENTITIES
     else:
         targets = PERSONS
 

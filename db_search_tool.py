@@ -54,13 +54,14 @@ class DBSearchTool:
             meta_str_lower = json.dumps(meta or {}).lower()
             combined_text = f"{chunk_text_lower} {meta_str_lower} {file_name.lower()} {ent_name.lower()}"
 
+            import re
             if state and state.lower() not in combined_text:
                 sim -= 0.1
 
-            if father_tokens and all(tok in combined_text for tok in father_tokens):
-                sim += 0.25
+            if father_tokens and all(re.search(r'\b' + re.escape(tok) + r'\b', combined_text) for tok in father_tokens):
+                sim += 0.35
 
-            if entity_tokens and any(tok in combined_text for tok in entity_tokens):
+            if entity_tokens and any(re.search(r'\b' + re.escape(tok) + r'\b', combined_text) for tok in entity_tokens):
                 sim += 0.15
 
             scored_results.append({
@@ -70,7 +71,17 @@ class DBSearchTool:
             })
 
         scored_results.sort(key=lambda x: x["similarity_score"], reverse=True)
-        top_chunks = scored_results[:top_k]
+
+        # Deduplicate identical chunks (e.g. from duplicate documents)
+        seen_content = set()
+        unique_results = []
+        for res in scored_results:
+            key = (res["file_name"], res["page_number"], res["chunk_index"])
+            if key not in seen_content:
+                seen_content.add(key)
+                unique_results.append(res)
+
+        top_chunks = unique_results[:top_k]
 
         # Guarantee header chunks (page 1, chunk 0) for matched documents
         top_doc_ids = {c["doc_id"] for c in top_chunks}
@@ -108,6 +119,7 @@ class DBSearchTool:
         father_tokens = self._tokenize_name(father_name)
         entity_tokens = self._tokenize_name(entity_name)
 
+        import re
         scored_results = []
         for r in rows:
             chunk_id, file_name, ent_name, cat, page_num, chunk_text, meta_raw, emb_raw, chunk_idx, doc_id = r
@@ -125,10 +137,10 @@ class DBSearchTool:
             if state and state.lower() not in combined_text:
                 sim -= 0.1
 
-            if father_tokens and all(tok in combined_text for tok in father_tokens):
-                sim += 0.25
+            if father_tokens and all(re.search(r'\b' + re.escape(tok) + r'\b', combined_text) for tok in father_tokens):
+                sim += 0.35
 
-            if entity_tokens and any(tok in combined_text for tok in entity_tokens):
+            if entity_tokens and any(re.search(r'\b' + re.escape(tok) + r'\b', combined_text) for tok in entity_tokens):
                 sim += 0.15
 
             scored_results.append({
@@ -138,7 +150,17 @@ class DBSearchTool:
             })
 
         scored_results.sort(key=lambda x: x["similarity_score"], reverse=True)
-        top_chunks = scored_results[:top_k]
+
+        # Deduplicate identical chunks (e.g. from duplicate documents)
+        seen_content = set()
+        unique_results = []
+        for res in scored_results:
+            key = (res["file_name"], res["page_number"], res["chunk_index"])
+            if key not in seen_content:
+                seen_content.add(key)
+                unique_results.append(res)
+
+        top_chunks = unique_results[:top_k]
 
         # Guarantee header chunks (page 1, chunk 0) for matched documents
         top_doc_ids = {c["doc_id"] for c in top_chunks}

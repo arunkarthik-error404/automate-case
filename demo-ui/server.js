@@ -86,10 +86,10 @@ const PERSON_MAP = {
         'Litigation Search/District Course Case details - Persons/G Janardhan Reddy'
       ],
       'High Court - Karnataka': [
-        'Litigation Search/High Court Case details - Persons/G Janardhan Reddy/Karnataka'
+        'Litigation Search/High Court Case details - Persons/G Janathan Reddy/Karnataka'
       ],
       'High Court - Telangana': [
-        'Litigation Search/High Court Case details - Persons/G Janardhan Reddy/Telangana'
+        'Litigation Search/High Court Case details - Persons/G Janathan Reddy/Telangana'
       ]
     }
   },

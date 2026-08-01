@@ -23,13 +23,8 @@ const PDF_BASE_URL = process.env.PDF_BASE_URL || process.env.CLOUDFLARE_R2_URL;
 // Serve static frontend
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Serve PDF files from Cloud Storage (Cloudflare R2 / S3) OR dynamically locate local PDFs across project directories
+// Serve PDF files from local directories OR fallback to Cloud Storage (Cloudflare R2 / S3)
 app.use('/pdfs', (req, res, next) => {
-  if (PDF_BASE_URL) {
-    const targetUrl = `${PDF_BASE_URL.replace(/\/$/, '')}${req.url}`;
-    return res.redirect(targetUrl);
-  }
-
   const reqPath = decodeURIComponent(req.path);
   const fileName = path.basename(reqPath);
 
@@ -72,6 +67,12 @@ app.use('/pdfs', (req, res, next) => {
     }
   }
 
+  // 3. Fallback: If not found on local disk and PDF_BASE_URL (Cloudflare R2) is set, redirect to Cloudflare R2
+  if (PDF_BASE_URL) {
+    const targetUrl = `${PDF_BASE_URL.replace(/\/$/, '')}${req.url}`;
+    return res.redirect(targetUrl);
+  }
+
   next();
 });
 
@@ -85,10 +86,10 @@ const PERSON_MAP = {
         'Litigation Search/District Course Case details - Persons/G Janardhan Reddy'
       ],
       'High Court - Karnataka': [
-        'Litigation Search/High Court Case details - Persons/G Janathan Reddy/Karnataka'
+        'Litigation Search/High Court Case details - Persons/G Janardhan Reddy/Karnataka'
       ],
       'High Court - Telangana': [
-        'Litigation Search/High Court Case details - Persons/G Janathan Reddy/Telangana'
+        'Litigation Search/High Court Case details - Persons/G Janardhan Reddy/Telangana'
       ]
     }
   },
@@ -387,32 +388,42 @@ app.get('/api/stats', (req, res) => {
   });
 });
 
-// Helper: Find URL for a given PDF filename across directory structure or manifest
+// Helper: Find URL for a given PDF filename across local disk or manifest
 function findPdfUrlByName(filename) {
   if (!filename) return null;
   const targetName = path.basename(filename).toLowerCase().trim();
 
-  // Search local directory recursively
-  if (fs.existsSync(REPORTS_BASE)) {
+  // 1. Search local directories first
+  const searchDirs = [
+    REPORTS_BASE,
+    path.join(__dirname, '..', 'downloads'),
+    path.join(__dirname, '..', 'automation', 'downloads'),
+    path.join(__dirname, '..')
+  ];
+
+  for (const baseDir of searchDirs) {
+    if (!fs.existsSync(baseDir)) continue;
     const searchDir = (dir) => {
-      const items = fs.readdirSync(dir, { withFileTypes: true });
-      for (const item of items) {
-        const fullPath = path.join(dir, item.name);
-        if (item.isDirectory()) {
-          const found = searchDir(fullPath);
-          if (found) return found;
-        } else if (item.name.toLowerCase() === targetName) {
-          const relativePath = path.relative(REPORTS_BASE, fullPath).replace(/\\/g, '/');
-          return '/pdfs/' + encodeURIComponent(relativePath).replace(/%2F/g, '/');
+      try {
+        const items = fs.readdirSync(dir, { withFileTypes: true });
+        for (const item of items) {
+          const fullPath = path.join(dir, item.name);
+          if (item.isDirectory()) {
+            const found = searchDir(fullPath);
+            if (found) return found;
+          } else if (item.name.toLowerCase() === targetName) {
+            const relativePath = path.relative(baseDir, fullPath).replace(/\\/g, '/');
+            return '/pdfs/' + encodeURIComponent(relativePath).replace(/%2F/g, '/');
+          }
         }
-      }
+      } catch (e) {}
       return null;
     };
-    const found = searchDir(REPORTS_BASE);
+    const found = searchDir(baseDir);
     if (found) return found;
   }
 
-  // Fallback: Search in MANIFEST
+  // 2. Search in MANIFEST
   if (MANIFEST) {
     for (const files of Object.values(MANIFEST)) {
       for (const file of files) {

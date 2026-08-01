@@ -137,9 +137,10 @@ class CaseChatbot:
                 print(f"Legacy GenAI model initialization notice: {e}")
 
     def extract_filters_from_query(self, query: str):
-        """Extract father name or state filters from natural language user prompt."""
+        """Extract father name, state, and entity/person name filters from natural language user prompt."""
         father_name = None
         state = None
+        entity_name = None
 
         father_match = re.search(r'(?:son of|s/o|father[\'s]*)\s*([A-Za-z]+(?:\s+[A-Za-z]+){0,2})', query, re.IGNORECASE)
         if father_match:
@@ -151,16 +152,28 @@ class CaseChatbot:
                 state = st
                 break
 
-        return father_name, state
+        clean_query = query
+        if father_match:
+            clean_query = query[:father_match.start()].strip()
+
+        person_match = re.search(r'(?:details (?:on|of|about)|about|for|search for|information on)\s+([A-Za-z\.\s]+)', clean_query, re.IGNORECASE)
+        if person_match:
+            entity_name = person_match.group(1).strip()
+        else:
+            m = re.search(r'\b([A-Z]\.?\s*[A-Za-z]+\s+[A-Za-z]+(?:\s+Reddy|\s+Rao)?)\b', clean_query, re.IGNORECASE)
+            if m:
+                entity_name = m.group(1).strip()
+
+        return father_name, state, entity_name
 
     def answer_query(self, user_query: str) -> str:
         """Processes user query, searches pgvector DB, and generates AI answer."""
         is_summary_request = any(kw in user_query.lower() for kw in ["summary", "summarize", "overview", "report"])
-        father_name, state = self.extract_filters_from_query(user_query)
+        father_name, state, entity_name = self.extract_filters_from_query(user_query)
 
         print(f"\n[QUERY] {user_query}")
-        if father_name or state:
-            print(f"[METADATA FILTER] Father Name: {father_name} | State: {state}")
+        if father_name or state or entity_name:
+            print(f"[METADATA FILTER] Entity Name: {entity_name} | Father Name: {father_name} | State: {state}")
 
         if is_summary_request:
             entity_match = re.search(r'summary of\s+(.+)', user_query, re.IGNORECASE)
@@ -168,13 +181,14 @@ class CaseChatbot:
             entity_key = re.sub(r'^(?:ROC search for|litigation search for|search for|about|details of)\s+', '', raw_key, flags=re.IGNORECASE).strip()
             chunks = self.search_tool.get_document_chunks_for_summary(entity_key, max_chunks=20)
             if not chunks or len(chunks) < 3:
-                chunks = self.search_tool.search_similar_chunks(user_query, top_k=10)
+                chunks = self.search_tool.search_similar_chunks(user_query, top_k=10, father_name=father_name, state=state, entity_name=entity_name)
         else:
             chunks = self.search_tool.search_similar_chunks(
                 query=user_query,
                 top_k=8,
                 father_name=father_name,
-                state=state
+                state=state,
+                entity_name=entity_name
             )
 
         if not chunks:
@@ -191,10 +205,12 @@ Answer the user's query accurately using ONLY the provided database context chun
 
 FORMATTING & RESPONSE GUIDELINES:
 1. Direct Executive Summary: Jump directly into the factual summary. Do NOT include conversational filler like "Here is a summary..." or "Summary of ROC search...".
-2. Clean Section Hierarchy: Organize information into clear sections using `###` headers (e.g. `### Entity Details`, `### Filings & Charges`, `### Litigation & Legal Actions`, `### CERSAI / Asset Search`).
-3. Concise Bullets: Present key fields as clean bullet points (`* **Company Name:** GVR ELECTRO TECHNICS PVT LTD`).
-4. Grouped Source Citations: Do NOT attach source citations to every single field line. Instead, list the relevant source PDF file(s) once at the end of each section or charge entry (e.g. `📄 **Source File:** \`filename.pdf\``).
-5. Completeness: Ensure all dates, amounts, charges, case numbers, and parties present in the chunks are accurately reported.
+2. Party Identification & Disambiguation: Inspect party headers in the chunks carefully (e.g. "Between: [Target Person], S/o [Father Name], Petitioner/Plaintiff/Respondent"). If the target person is explicitly listed with their father's name (e.g., G. Janardhan Reddy, S/o Late G. Ram Reddy), confirm their presence, role in the case, case number, court, date, and relief sought.
+3. Co-Party Recognition: Recognize that co-respondents or family members (e.g., brothers sharing the same father's name like G. Sudershan Reddy S/o Late G.Ram Reddy) listed in the document are co-parties in the same legal proceeding. Do NOT claim the document is solely about other individuals if the target person is named as a primary party.
+4. Clean Section Hierarchy: Organize information into clear sections using `###` headers (e.g. `### Entity Details`, `### Filings & Charges`, `### Litigation & Legal Actions`, `### CERSAI / Asset Search`).
+5. Concise Bullets: Present key fields as clean bullet points (`* **Party Name:** G Janardhan Reddy`, `* **Father's Name:** Late G. Ram Reddy`).
+6. Grouped Source Citations: List the relevant source PDF file(s) at the end of each section (e.g. `📄 **Source File:** \`filename.pdf\``).
+7. Completeness: Ensure all dates, amounts, case numbers, courts, and parties present in the chunks are accurately reported.
 
 Database Context Chunks:
 {context_str}

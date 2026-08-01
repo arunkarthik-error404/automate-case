@@ -19,47 +19,75 @@ class DBSearchTool:
         else:
             return self._search_sqlite(query, top_k, father_name, state, entity_name)
 
+    def _tokenize_name(self, name_str):
+        if not name_str:
+            return []
+        import re
+        tokens = [t.lower() for t in re.split(r'[\s\.\,]+', name_str) if t.lower() not in ('g', 'late', 's/o', 'son', 'of', 'mr', 'sri', '')]
+        return tokens
+
     def _search_postgres(self, conn, query, top_k, father_name, state, entity_name):
         query_vec = self.embedder.generate_embedding(query)
         vec_str = f"[{','.join(map(str, query_vec))}]"
 
+        father_tokens = self._tokenize_name(father_name)
+        entity_tokens = self._tokenize_name(entity_name)
+
         cursor = conn.cursor()
-        where_clauses = ["1=1"]
-        params = []
-
-        if father_name:
-            where_clauses.append("(c.metadata->>'father_name' ILIKE %s OR c.chunk_text ILIKE %s)")
-            params.extend([f"%{father_name}%", f"%{father_name}%"])
-
-        if state:
-            where_clauses.append("(c.metadata->>'state' ILIKE %s OR c.chunk_text ILIKE %s)")
-            params.extend([f"%{state}%", f"%{state}%"])
-
-        if entity_name:
-            where_clauses.append("(d.entity_name ILIKE %s OR c.chunk_text ILIKE %s)")
-            params.extend([f"%{entity_name}%", f"%{entity_name}%"])
-
-        where_sql = " AND ".join(where_clauses)
-        sql = f"""
+        sql = """
             SELECT 
                 c.id, d.file_name, d.entity_name, d.category, c.page_number, c.chunk_text, c.metadata,
-                (c.embedding <=> %s::vector) AS cosine_distance
+                (c.embedding <=> %s::vector) AS cosine_distance, c.chunk_index, d.id AS doc_id
             FROM document_chunks c
-            JOIN documents d ON c.document_id = d.id
-            WHERE {where_sql}
-            ORDER BY c.embedding <=> %s::vector ASC
-            LIMIT %s;
+            JOIN documents d ON c.document_id = d.id;
         """
-        cursor.execute(sql, (vec_str, *params, vec_str, top_k))
+        cursor.execute(sql, (vec_str,))
         rows = cursor.fetchall()
         cursor.close()
         conn.close()
 
-        return [{
-            "chunk_id": r[0], "file_name": r[1], "entity_name": r[2], "category": r[3],
-            "page_number": r[4], "chunk_text": r[5], "metadata": r[6],
-            "similarity_score": round(1.0 - float(r[7]), 4)
-        } for r in rows]
+        scored_results = []
+        for r in rows:
+            chunk_id, file_name, ent_name, cat, page_num, chunk_text, meta, cos_dist, chunk_idx, doc_id = r
+            sim = 1.0 - float(cos_dist)
+            chunk_text_lower = chunk_text.lower()
+            meta_str_lower = json.dumps(meta or {}).lower()
+            combined_text = f"{chunk_text_lower} {meta_str_lower} {file_name.lower()} {ent_name.lower()}"
+
+            if state and state.lower() not in combined_text:
+                sim -= 0.1
+
+            if father_tokens and all(tok in combined_text for tok in father_tokens):
+                sim += 0.25
+
+            if entity_tokens and any(tok in combined_text for tok in entity_tokens):
+                sim += 0.15
+
+            scored_results.append({
+                "chunk_id": chunk_id, "file_name": file_name, "entity_name": ent_name, "category": cat,
+                "page_number": page_num, "chunk_text": chunk_text, "metadata": meta,
+                "similarity_score": round(sim, 4), "chunk_index": chunk_idx, "doc_id": doc_id
+            })
+
+        scored_results.sort(key=lambda x: x["similarity_score"], reverse=True)
+        top_chunks = scored_results[:top_k]
+
+        # Guarantee header chunks (page 1, chunk 0) for matched documents
+        top_doc_ids = {c["doc_id"] for c in top_chunks}
+        existing_chunk_ids = {c["chunk_id"] for c in top_chunks}
+
+        for r in rows:
+            chunk_id, file_name, ent_name, cat, page_num, chunk_text, meta, cos_dist, chunk_idx, doc_id = r
+            if doc_id in top_doc_ids and page_num == 1 and chunk_idx == 0 and chunk_id not in existing_chunk_ids:
+                top_chunks.append({
+                    "chunk_id": chunk_id, "file_name": file_name, "entity_name": ent_name, "category": cat,
+                    "page_number": page_num, "chunk_text": chunk_text, "metadata": meta,
+                    "similarity_score": 0.9999, "chunk_index": chunk_idx, "doc_id": doc_id
+                })
+                existing_chunk_ids.add(chunk_id)
+
+        top_chunks.sort(key=lambda x: (x["file_name"], x["page_number"], x["chunk_index"]))
+        return top_chunks
 
     def _search_sqlite(self, query, top_k, father_name, state, entity_name):
         init_sqlite_fallback()
@@ -69,7 +97,7 @@ class DBSearchTool:
         query_vec = np.array(self.embedder.generate_embedding(query), dtype=np.float32)
 
         sql = """
-            SELECT c.id, d.file_name, d.entity_name, d.category, c.page_number, c.chunk_text, c.metadata, c.embedding
+            SELECT c.id, d.file_name, d.entity_name, d.category, c.page_number, c.chunk_text, c.metadata, c.embedding, c.chunk_index, d.id
             FROM document_chunks c
             JOIN documents d ON c.document_id = d.id;
         """
@@ -77,41 +105,58 @@ class DBSearchTool:
         rows = cursor.fetchall()
         conn.close()
 
+        father_tokens = self._tokenize_name(father_name)
+        entity_tokens = self._tokenize_name(entity_name)
+
         scored_results = []
         for r in rows:
-            chunk_id, file_name, ent_name, cat, page_num, chunk_text, meta_raw, emb_raw = r
+            chunk_id, file_name, ent_name, cat, page_num, chunk_text, meta_raw, emb_raw, chunk_idx, doc_id = r
             meta = json.loads(meta_raw) if isinstance(meta_raw, str) else meta_raw or {}
+            chunk_text_lower = chunk_text.lower()
+            meta_str_lower = json.dumps(meta).lower()
+            combined_text = f"{chunk_text_lower} {meta_str_lower} {file_name.lower()} {ent_name.lower()}"
 
-            # Filters check
-            if father_name:
-                f_meta = meta.get("father_name", "")
-                if father_name.lower() not in f_meta.lower() and father_name.lower() not in chunk_text.lower():
-                    continue
-
-            if state:
-                s_meta = meta.get("state", "")
-                if state.lower() not in s_meta.lower() and state.lower() not in chunk_text.lower():
-                    continue
-
-            if entity_name:
-                if entity_name.lower() not in ent_name.lower() and entity_name.lower() not in chunk_text.lower():
-                    continue
-
-            # Vector cosine similarity
             try:
                 emb = np.array(json.loads(emb_raw), dtype=np.float32)
                 sim = float(np.dot(query_vec, emb) / (np.linalg.norm(query_vec) * np.linalg.norm(emb) + 1e-9))
             except Exception:
                 sim = 0.0
 
+            if state and state.lower() not in combined_text:
+                sim -= 0.1
+
+            if father_tokens and all(tok in combined_text for tok in father_tokens):
+                sim += 0.25
+
+            if entity_tokens and any(tok in combined_text for tok in entity_tokens):
+                sim += 0.15
+
             scored_results.append({
                 "chunk_id": chunk_id, "file_name": file_name, "entity_name": ent_name, "category": cat,
                 "page_number": page_num, "chunk_text": chunk_text, "metadata": meta,
-                "similarity_score": round(sim, 4)
+                "similarity_score": round(sim, 4), "chunk_index": chunk_idx, "doc_id": doc_id
             })
 
         scored_results.sort(key=lambda x: x["similarity_score"], reverse=True)
-        return scored_results[:top_k]
+        top_chunks = scored_results[:top_k]
+
+        # Guarantee header chunks (page 1, chunk 0) for matched documents
+        top_doc_ids = {c["doc_id"] for c in top_chunks}
+        existing_chunk_ids = {c["chunk_id"] for c in top_chunks}
+
+        for r in rows:
+            chunk_id, file_name, ent_name, cat, page_num, chunk_text, meta_raw, emb_raw, chunk_idx, doc_id = r
+            if doc_id in top_doc_ids and page_num == 1 and chunk_idx == 0 and chunk_id not in existing_chunk_ids:
+                meta = json.loads(meta_raw) if isinstance(meta_raw, str) else meta_raw or {}
+                top_chunks.append({
+                    "chunk_id": chunk_id, "file_name": file_name, "entity_name": ent_name, "category": cat,
+                    "page_number": page_num, "chunk_text": chunk_text, "metadata": meta,
+                    "similarity_score": 0.9999, "chunk_index": chunk_idx, "doc_id": doc_id
+                })
+                existing_chunk_ids.add(chunk_id)
+
+        top_chunks.sort(key=lambda x: (x["file_name"], x["page_number"], x["chunk_index"]))
+        return top_chunks
 
     def get_document_chunks_for_summary(self, entity_or_file: str, max_chunks: int = 25):
         search_pattern = f"%{entity_or_file}%"

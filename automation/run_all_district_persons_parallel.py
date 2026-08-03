@@ -24,6 +24,7 @@ PERSON_SCRIPTS = [
 
 def main():
     parser = argparse.ArgumentParser(description="District Courts Parallel Orchestrator (Persons)")
+    parser.add_argument("--state", type=str, choices=["telangana", "bengaluru", "karnataka", "all"], default="all", help="Target state: 'telangana' or 'bengaluru'")
     parser.add_argument("--delay", type=float, default=4.0, help="Pacing delay per worker in seconds (default: 4.0)")
     parser.add_argument("--stagger", type=float, default=6.0, help="Launch stagger delay between workers in seconds (default: 6.0)")
     args = parser.parse_args()
@@ -32,7 +33,8 @@ def main():
     python_exe = sys.executable
 
     print("=" * 70)
-    print("  LAUNCHING ALL 6 DISTRICT COURT PERSON SEARCHES IN PARALLEL")
+    print(f"  LAUNCHING ALL 6 DISTRICT COURT PERSON SEARCHES ({args.state.upper()}) IN PARALLEL")
+    print(f"  State filter      : {args.state}")
     print(f"  Pacing per worker : {args.delay}s")
     print(f"  Launch stagger    : {args.stagger}s")
     print("=" * 70 + "\n")
@@ -40,8 +42,8 @@ def main():
     processes = []
     for idx, script in enumerate(PERSON_SCRIPTS):
         script_path = root / script
-        print(f"  ▶ Launching worker [{idx+1}/{len(PERSON_SCRIPTS)}]: {script}")
-        p = subprocess.Popen([python_exe, str(script_path), "--delay", str(args.delay)])
+        print(f"  ▶ Launching worker [{idx+1}/{len(PERSON_SCRIPTS)}]: {script} (state: {args.state})")
+        p = subprocess.Popen([python_exe, str(script_path), "--state", args.state, "--delay", str(args.delay)])
         processes.append((script, p))
         if idx < len(PERSON_SCRIPTS) - 1:
             time.sleep(args.stagger)

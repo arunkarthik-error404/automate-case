@@ -70,10 +70,15 @@ START_YEAR    = 2026
 END_YEAR      = 2020
 DEFAULT_DELAY = 4.0  # seconds pacing delay to avoid IP rate-limiting / blocking
 
-TARGET_DISTRICTS = [
+TARGET_DISTRICTS_BENGALURU = [
     {"state": "Karnataka",  "district_pattern": r"bengaluru|bangalore"},
+]
+
+TARGET_DISTRICTS_TELANGANA = [
     {"state": "Telangana",  "district_pattern": r"ranga|rangareddy"},
 ]
+
+TARGET_DISTRICTS = TARGET_DISTRICTS_BENGALURU + TARGET_DISTRICTS_TELANGANA
 
 PERSONS = [
     "G. Janardhan Reddy",
@@ -1070,15 +1075,24 @@ def search_district_for_person(driver_or_ref, person_name, target_cfg, delay=DEF
 
 # ── RUNNER FUNCTION ─────────────────────────────────────────────────
 
-def run_district_for_persons(target_persons, delay=DEFAULT_DELAY):
+def run_district_for_persons(target_persons, state_filter=None, delay=DEFAULT_DELAY):
     if isinstance(target_persons, str):
         target_persons = [target_persons]
+
+    dist_cfg_list = TARGET_DISTRICTS
+    if state_filter:
+        sf = str(state_filter).lower().strip()
+        if sf in ["telangana", "ts", "ranga", "rangareddy"]:
+            dist_cfg_list = TARGET_DISTRICTS_TELANGANA
+        elif sf in ["bengaluru", "bangalore", "karnataka", "ka"]:
+            dist_cfg_list = TARGET_DISTRICTS_BENGALURU
 
     print("="*70)
     print("  eCourts District Courts Automation (ecourtindia_v6)")
     print(f"  Target URL : {BASE_URL}")
     print(f"  Downloads  : {DOWNLOAD_DIR.resolve()}")
     print(f"  Targets    : {len(target_persons)} Person(s)")
+    print(f"  Regions    : {[d['state'] for d in dist_cfg_list]}")
     print(f"  Pacing     : {delay}s delay between requests")
     for p in target_persons:
         print(f"               - {p}")
@@ -1090,7 +1104,7 @@ def run_district_for_persons(target_persons, delay=DEFAULT_DELAY):
 
     try:
         for person in target_persons:
-            for dist_cfg in TARGET_DISTRICTS:
+            for dist_cfg in dist_cfg_list:
                 search_district_for_person(driver_ref, person, dist_cfg, delay=delay)
 
     except KeyboardInterrupt:
@@ -1117,6 +1131,8 @@ def main():
                         help="Index of person to search (1 to 6)")
     parser.add_argument("--entities", action="store_true", help="Search all entities instead of persons")
     parser.add_argument("--all", action="store_true", help="Search all persons and entities sequentially")
+    parser.add_argument("--state", type=str, choices=["telangana", "bengaluru", "karnataka", "all"], default="all",
+                        help="Target state/region: 'telangana' (Rangareddy) or 'bengaluru' (Karnataka)")
     parser.add_argument("--delay", type=float, default=DEFAULT_DELAY, help="Pacing delay in seconds (default 4.0)")
 
     args = parser.parse_args()
@@ -1132,7 +1148,7 @@ def main():
     else:
         targets = PERSONS
 
-    run_district_for_persons(targets, delay=args.delay)
+    run_district_for_persons(targets, state_filter=args.state, delay=args.delay)
 
 if __name__ == "__main__":
     main()

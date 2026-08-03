@@ -97,6 +97,9 @@ const PERSON_MAP = {
     litigation: {
       'District Court': [
         'Litigation Search/District Course Case details - Persons/G Veera Reddy'
+      ],
+      'High Court - Karnataka': [
+        'Litigation Search/High Court Case details - Persons/G Veera Reddy/Karnataka'
       ]
     }
   },
@@ -104,6 +107,10 @@ const PERSON_MAP = {
     litigation: {
       'District Court': [
         'Litigation Search/District Course Case details - Persons/G. Kanaka Durga'
+      ],
+      'High Court - Karnataka': [
+        'Litigation Search/High Court Case details - Persons/G Kanaka Durga/Karnataka',
+        'Litigation Search/High Court Case details - Persons/G. Kanaka Durga/Karnataka'
       ]
     }
   },

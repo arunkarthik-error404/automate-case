@@ -152,6 +152,11 @@ const ENTITY_MAP = {
       'NCLT': [
         'Litigation Search/NCLT/Entities/Tulip Data Services'
       ]
+    },
+    debtor: {
+      'CERSAI Debtor Search': [
+        'Debtor based search - Entities/Tulip Data Centre Services Private Limited'
+      ]
     }
   },
   'Space World Group LLP': {
@@ -169,6 +174,11 @@ const ENTITY_MAP = {
     litigation: {
       'High Court - Delhi': [
         'Litigation Search/High court Case Details - Entities/Delhi High court/Space World Group LLP'
+      ]
+    },
+    debtor: {
+      'CERSAI Debtor Search': [
+        'Debtor based search - Entities/Space World Group LLP'
       ]
     }
   },
@@ -191,6 +201,11 @@ const ENTITY_MAP = {
       'High Court - Karnataka': [
         'Litigation Search/High court Case Details - Entities/Karnataka HC'
       ]
+    },
+    debtor: {
+      'CERSAI Debtor Search': [
+        'Debtor based search - Entities/Space World Data Centre Private Limited'
+      ]
     }
   },
   'GVR Electro Technics Pvt Ltd': {
@@ -206,6 +221,11 @@ const ENTITY_MAP = {
       ],
       'Incorporation': [
         'ROC Search/GVR ELECTRO TECHNICS PVT LTD/Incorporation'
+      ]
+    },
+    debtor: {
+      'CERSAI Debtor Search': [
+        'Debtor based search - Entities/GVR Electro Technics Pvt Ltd'
       ]
     }
   },
@@ -227,6 +247,11 @@ const ENTITY_MAP = {
     litigation: {
       'NCLT': [
         'Litigation Search/NCLT/Entities/Sada IT Parks Private Limited'
+      ]
+    },
+    debtor: {
+      'CERSAI Debtor Search': [
+        'Debtor based search - Entities/SADA IT Parks Private Limited'
       ]
     }
   }

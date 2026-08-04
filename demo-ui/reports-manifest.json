@@ -682,36 +682,44 @@
       "size": 102400
     }
   ],
-  "Debtor based search - Entities": [
+  "Debtor based search - Entities/Tulip Data Centre Services Private Limited": [
     {
       "name": "CERSAI_Search_Report_200471520393_For_Debtor_Based_Search_29_07_2026_11_57_58_368.pdf",
-      "relativePath": "Debtor based search - Entities/CERSAI_Search_Report_200471520393_For_Debtor_Based_Search_29_07_2026_11_57_58_368.pdf",
-      "size": 102400
-    },
-    {
-      "name": "CERSAI_Search_Report_200471514062_For_Debtor_Based_Search_29_07_2026_11_48_41_327.pdf",
-      "relativePath": "Debtor based search - Entities/CERSAI_Search_Report_200471514062_For_Debtor_Based_Search_29_07_2026_11_48_41_327.pdf",
-      "size": 102400
-    },
-    {
-      "name": "CERSAI_Search_Report_200471503371_For_Debtor_Based_Search_29_07_2026_11_35_58_428.pdf",
-      "relativePath": "Debtor based search - Entities/CERSAI_Search_Report_200471503371_For_Debtor_Based_Search_29_07_2026_11_35_58_428.pdf",
-      "size": 102400
-    },
-    {
-      "name": "CERSAI_Search_Report_200471499657_For_Debtor_Based_Search_29_07_2026_11_31_51_382.pdf",
-      "relativePath": "Debtor based search - Entities/CERSAI_Search_Report_200471499657_For_Debtor_Based_Search_29_07_2026_11_31_51_382.pdf",
-      "size": 102400
+      "relativePath": "Debtor based search - Entities/Tulip Data Centre Services Private Limited/CERSAI_Search_Report_200471520393_For_Debtor_Based_Search_29_07_2026_11_57_58_368.pdf",
+      "size": 105260
     },
     {
       "name": "CERSAI_Search_Report_200471520300_For_Debtor_Based_Search_29_07_2026_11_57_48_636.pdf",
-      "relativePath": "Debtor based search - Entities/CERSAI_Search_Report_200471520300_For_Debtor_Based_Search_29_07_2026_11_57_48_636.pdf",
-      "size": 102400
-    },
+      "relativePath": "Debtor based search - Entities/Tulip Data Centre Services Private Limited/CERSAI_Search_Report_200471520300_For_Debtor_Based_Search_29_07_2026_11_57_48_636.pdf",
+      "size": 105260
+    }
+  ],
+  "Debtor based search - Entities/Space World Group LLP": [
+    {
+      "name": "CERSAI_Search_Report_200471503371_For_Debtor_Based_Search_29_07_2026_11_35_58_428.pdf",
+      "relativePath": "Debtor based search - Entities/Space World Group LLP/CERSAI_Search_Report_200471503371_For_Debtor_Based_Search_29_07_2026_11_35_58_428.pdf",
+      "size": 62668
+    }
+  ],
+  "Debtor based search - Entities/Space World Data Centre Private Limited": [
+    {
+      "name": "CERSAI_Search_Report_200471499657_For_Debtor_Based_Search_29_07_2026_11_31_51_382.pdf",
+      "relativePath": "Debtor based search - Entities/Space World Data Centre Private Limited/CERSAI_Search_Report_200471499657_For_Debtor_Based_Search_29_07_2026_11_31_51_382.pdf",
+      "size": 62668
+    }
+  ],
+  "Debtor based search - Entities/GVR Electro Technics Pvt Ltd": [
     {
       "name": "CERSAI_Search_Report_200471506806_For_Debtor_Based_Search_29_07_2026_11_39_44_433.pdf",
-      "relativePath": "Debtor based search - Entities/CERSAI_Search_Report_200471506806_For_Debtor_Based_Search_29_07_2026_11_39_44_433.pdf",
-      "size": 102400
+      "relativePath": "Debtor based search - Entities/GVR Electro Technics Pvt Ltd/CERSAI_Search_Report_200471506806_For_Debtor_Based_Search_29_07_2026_11_39_44_433.pdf",
+      "size": 62668
+    }
+  ],
+  "Debtor based search - Entities/SADA IT Parks Private Limited": [
+    {
+      "name": "CERSAI_Search_Report_200471514062_For_Debtor_Based_Search_29_07_2026_11_48_41_327.pdf",
+      "relativePath": "Debtor based search - Entities/SADA IT Parks Private Limited/CERSAI_Search_Report_200471514062_For_Debtor_Based_Search_29_07_2026_11_48_41_327.pdf",
+      "size": 104981
     }
   ],
   "Asset based search": [

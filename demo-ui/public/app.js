@@ -55,7 +55,7 @@ const CARD_TYPES = {
   },
   entity: {
     title: 'Select an Entity',
-    desc: 'Click an entity below to explore its ROC and Litigation documents.',
+    desc: 'Click an entity below to explore its ROC, Litigation, and Debtor search documents.',
     back: 'All Entities'
   }
 };
@@ -546,7 +546,7 @@ function formatCategoryName(key) {
     roc: 'ROC Search',
     litigation: 'Litigation Search',
     asset: 'Asset Details',
-    debtor: 'Debtor Search Details',
+    debtor: 'Debtor Search',
     cersai: 'CERSAI / Debtor Search'
   };
   return names[key] || key.charAt(0).toUpperCase() + key.slice(1);

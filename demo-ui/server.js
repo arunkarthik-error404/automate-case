@@ -432,10 +432,26 @@ function findPdfUrlByName(filename) {
 
   // 2. Search in MANIFEST
   if (MANIFEST) {
+    // 2a. Exact match on file.name or relativePath basename
     for (const files of Object.values(MANIFEST)) {
       for (const file of files) {
-        if (file.name.toLowerCase() === targetName) {
+        const fileBasename = path.basename(file.relativePath).toLowerCase();
+        if (file.name.toLowerCase() === targetName || fileBasename === targetName) {
           return '/pdfs/' + encodeURIComponent(file.relativePath).replace(/%2F/g, '/');
+        }
+      }
+    }
+
+    // 2b. Fuzzy / Prefix match (for truncated or short DOS 8.3 filenames like AOC-4X~1.PDF)
+    const cleanPrefix = targetName.substring(0, 10).toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (cleanPrefix.length >= 3) {
+      for (const files of Object.values(MANIFEST)) {
+        for (const file of files) {
+          const nameLower = file.name.toLowerCase();
+          const relLower = file.relativePath.toLowerCase();
+          if (nameLower.includes(cleanPrefix) || relLower.includes(cleanPrefix)) {
+            return '/pdfs/' + encodeURIComponent(file.relativePath).replace(/%2F/g, '/');
+          }
         }
       }
     }

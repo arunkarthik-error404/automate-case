@@ -84,6 +84,15 @@
         </div>
       </div>
 
+      <!-- Name picker (clickable person / entity cards) -->
+      <div class="card-picker" id="namePicker" style="display:none;">
+        <div class="picker-header">
+          <h2 class="picker-title" id="pickerTitle">Select an Entity</h2>
+          <p class="picker-desc" id="pickerDesc">Click an entity below to explore its documents.</p>
+        </div>
+        <div class="name-card-grid" id="nameCardGrid"></div>
+      </div>
+
       <!-- Loading state -->
       <div class="loading-state" id="loadingState" style="display:none;">
         <div class="loader-ring">
@@ -94,6 +103,13 @@
 
       <!-- Results -->
       <div class="results-container" id="resultsContainer" style="display:none;">
+        <button class="back-btn" id="backBtn" style="display:none;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12"/>
+            <polyline points="12 19 5 12 12 5"/>
+          </svg>
+          <span id="backBtnLabel">All Entities</span>
+        </button>
         <div class="results-header" id="resultsHeader"></div>
         <div class="category-filters" id="categoryFilters"></div>
         <div class="results-grid" id="resultsGrid"></div>
@@ -125,7 +141,7 @@
           </div>
         </div>
 
-        <div class="sidebar-section">
+        <div class="sidebar-section" id="nameSection">
           <h3 class="sidebar-label">Select Name</h3>
           <div class="custom-select-wrapper">
             <select class="custom-select" id="nameSelect">
@@ -213,7 +229,17 @@
   </button>
 
   <div class="ai-chat-window" id="aiChatWindow" style="display:none;">
-    <div class="chat-header">
+    <!-- Resize handles (edges + corners) -->
+    <span class="chat-resize chat-resize-n" data-dir="n"></span>
+    <span class="chat-resize chat-resize-s" data-dir="s"></span>
+    <span class="chat-resize chat-resize-w" data-dir="w"></span>
+    <span class="chat-resize chat-resize-e" data-dir="e"></span>
+    <span class="chat-resize chat-resize-nw" data-dir="nw"></span>
+    <span class="chat-resize chat-resize-ne" data-dir="ne"></span>
+    <span class="chat-resize chat-resize-sw" data-dir="sw"></span>
+    <span class="chat-resize chat-resize-se" data-dir="se"></span>
+
+    <div class="chat-header" id="chatHeader" title="Drag to move · double-click to reset">
       <div class="chat-header-info">
         <div class="chat-avatar">🤖</div>
         <div>
@@ -221,7 +247,14 @@
           <span class="chat-subtitle">PostgreSQL + pgvector Hybrid Search</span>
         </div>
       </div>
-      <button class="chat-close-btn" id="chatCloseBtn">&times;</button>
+      <div class="chat-header-actions">
+        <button class="chat-icon-btn" id="chatMinimizeBtn" title="Minimise to the chat bubble" aria-label="Minimise chat">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+        </button>
+        <button class="chat-close-btn" id="chatCloseBtn" title="Close" aria-label="Close chat">&times;</button>
+      </div>
     </div>
 
     <!-- Quick prompt chips -->

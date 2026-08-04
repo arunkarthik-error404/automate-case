@@ -17,6 +17,10 @@ def run_nclt_ingestion():
         ("C:\\Users\\arunk\\Downloads\\NCLT - Sada-1.pdf", "Sada IT Parks Private Limited", "NCLT - Sada-1.pdf"),
         ("C:\\Users\\arunk\\Downloads\\NCLT - Tulip 1.pdf", "Tulip Data Services", "NCLT - Tulip 1.pdf"),
         ("C:\\Users\\arunk\\Downloads\\NCLT - Tulip 2.pdf", "Tulip Data Services", "NCLT - Tulip 2.pdf"),
+        ("C:\\Users\\arunk\\Downloads\\NCLT - Tulip 3.pdf", "Tulip Data Services", "NCLT - Tulip 3.pdf"),
+        ("C:\\Users\\arunk\\Downloads\\NCLT Tulip 4.pdf", "Tulip Data Services", "NCLT Tulip 4.pdf"),
+        ("C:\\Users\\arunk\\Downloads\\NCLT - Tulip 5.pdf", "Tulip Data Services", "NCLT - Tulip 5.pdf"),
+        ("C:\\Users\\arunk\\Downloads\\NCLT- Tulip 6.pdf", "Tulip Data Services", "NCLT- Tulip 6.pdf"),
     ]
 
     # Destination directory following Cloudflare R2 bucket structure:

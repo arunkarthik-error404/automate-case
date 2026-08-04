@@ -1098,5 +1098,24 @@
       "relativePath": "Litigation Search/High Court Case details - Persons/G Veera Reddy/Karnataka/G. Veera Reddy_2019_case1_order2.pdf",
       "size": 62802
     }
+  ],
+  "Litigation Search/NCLT/Entities/Sada IT Parks Private Limited": [
+    {
+      "name": "NCLT - Sada-1.pdf",
+      "relativePath": "Litigation Search/NCLT/Entities/Sada IT Parks Private Limited/NCLT - Sada-1.pdf",
+      "size": 102487
+    }
+  ],
+  "Litigation Search/NCLT/Entities/Tulip Data Services": [
+    {
+      "name": "NCLT - Tulip 1.pdf",
+      "relativePath": "Litigation Search/NCLT/Entities/Tulip Data Services/NCLT - Tulip 1.pdf",
+      "size": 113779
+    },
+    {
+      "name": "NCLT - Tulip 2.pdf",
+      "relativePath": "Litigation Search/NCLT/Entities/Tulip Data Services/NCLT - Tulip 2.pdf",
+      "size": 111680
+    }
   ]
 }

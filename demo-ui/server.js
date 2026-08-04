@@ -148,6 +148,9 @@ const ENTITY_MAP = {
       ],
       'DRT': [
         'Litigation Search/DRT/Entities/Tulip Data services'
+      ],
+      'NCLT': [
+        'Litigation Search/NCLT/Entities/Tulip Data Services'
       ]
     }
   },
@@ -219,6 +222,11 @@ const ENTITY_MAP = {
       ],
       'Incorporation': [
         'ROC Search/SADA IT PARKS PRIVATE LIMITED/Incorporation'
+      ]
+    },
+    litigation: {
+      'NCLT': [
+        'Litigation Search/NCLT/Entities/Sada IT Parks Private Limited'
       ]
     }
   }

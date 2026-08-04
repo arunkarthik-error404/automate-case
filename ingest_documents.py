@@ -3,8 +3,13 @@ import sys
 import json
 import sqlite3
 import argparse
-import psycopg2
-from psycopg2.extras import execute_values
+try:
+    import psycopg2
+    from psycopg2.extras import execute_values
+except ImportError:
+    psycopg2 = None
+    execute_values = None
+
 from dotenv import load_dotenv
 
 from rag.pdf_extractor import PDFExtractor

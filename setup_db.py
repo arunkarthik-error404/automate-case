@@ -3,7 +3,11 @@ import sys
 import sqlite3
 import subprocess
 import time
-import psycopg2
+try:
+    import psycopg2
+except ImportError:
+    psycopg2 = None
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -16,6 +20,8 @@ DB_PASS = os.getenv("POSTGRES_PASSWORD", "postgres")
 SQLITE_DB_PATH = os.path.join(os.path.dirname(__file__), "case_search_local.db")
 
 def connect_postgres(db_name=None):
+    if not psycopg2:
+        return None
     target_db = db_name if db_name else DB_NAME
     try:
         conn = psycopg2.connect(

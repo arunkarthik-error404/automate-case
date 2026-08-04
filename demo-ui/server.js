@@ -155,7 +155,8 @@ const ENTITY_MAP = {
     },
     debtor: {
       'CERSAI Debtor Search': [
-        'Debtor based search - Entities/Tulip Data Centre Services Private Limited'
+        'Debtor based search - Entities/CERSAI_Search_Report_200471520393_For_Debtor_Based_Search_29_07_2026_11_57_58_368.pdf',
+        'Debtor based search - Entities/CERSAI_Search_Report_200471520300_For_Debtor_Based_Search_29_07_2026_11_57_48_636.pdf'
       ]
     }
   },
@@ -178,7 +179,7 @@ const ENTITY_MAP = {
     },
     debtor: {
       'CERSAI Debtor Search': [
-        'Debtor based search - Entities/Space World Group LLP'
+        'Debtor based search - Entities/CERSAI_Search_Report_200471503371_For_Debtor_Based_Search_29_07_2026_11_35_58_428.pdf'
       ]
     }
   },
@@ -204,7 +205,7 @@ const ENTITY_MAP = {
     },
     debtor: {
       'CERSAI Debtor Search': [
-        'Debtor based search - Entities/Space World Data Centre Private Limited'
+        'Debtor based search - Entities/CERSAI_Search_Report_200471499657_For_Debtor_Based_Search_29_07_2026_11_31_51_382.pdf'
       ]
     }
   },
@@ -225,7 +226,7 @@ const ENTITY_MAP = {
     },
     debtor: {
       'CERSAI Debtor Search': [
-        'Debtor based search - Entities/GVR Electro Technics Pvt Ltd'
+        'Debtor based search - Entities/CERSAI_Search_Report_200471506806_For_Debtor_Based_Search_29_07_2026_11_39_44_433.pdf'
       ]
     }
   },
@@ -251,7 +252,7 @@ const ENTITY_MAP = {
     },
     debtor: {
       'CERSAI Debtor Search': [
-        'Debtor based search - Entities/SADA IT Parks Private Limited'
+        'Debtor based search - Entities/CERSAI_Search_Report_200471514062_For_Debtor_Based_Search_29_07_2026_11_48_41_327.pdf'
       ]
     }
   }
@@ -269,32 +270,66 @@ if (fs.existsSync(MANIFEST_PATH)) {
   }
 }
 
-// ─── Helper: Recursively get PDFs from a directory ───────────────
+// ─── Helper: Recursively get PDFs from a directory or specific file ───────────────
 
-function getPdfsFromDir(dirPath) {
+function getPdfsFromDir(targetPath) {
   const results = [];
-  if (fs.existsSync(dirPath)) {
-    const items = fs.readdirSync(dirPath, { withFileTypes: true });
+
+  // Normalize path format
+  const normPath = targetPath.replace(/\\/g, '/');
+
+  // If targetPath points directly to a single PDF file
+  if (normPath.toLowerCase().endsWith('.pdf')) {
+    const fullPath = path.join(REPORTS_BASE, targetPath);
+    if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+      const relativePath = path.relative(REPORTS_BASE, fullPath).replace(/\\/g, '/');
+      return [{
+        name: path.basename(fullPath),
+        url: '/pdfs/' + encodeURIComponent(relativePath).replace(/%2F/g, '/'),
+        size: fs.statSync(fullPath).size
+      }];
+    }
+
+    if (MANIFEST) {
+      const fileName = path.basename(normPath).toLowerCase();
+      for (const files of Object.values(MANIFEST)) {
+        for (const file of files) {
+          if (file.name.toLowerCase() === fileName || file.relativePath.toLowerCase() === normPath.toLowerCase()) {
+            results.push({
+              name: file.name,
+              url: '/pdfs/' + encodeURIComponent(file.relativePath).replace(/%2F/g, '/'),
+              size: file.size || 0
+            });
+            break;
+          }
+        }
+      }
+    }
+    return results;
+  }
+
+  const fullDirPath = path.join(REPORTS_BASE, targetPath);
+  if (fs.existsSync(fullDirPath) && fs.statSync(fullDirPath).isDirectory()) {
+    const items = fs.readdirSync(fullDirPath, { withFileTypes: true });
     for (const item of items) {
-      const fullPath = path.join(dirPath, item.name);
+      const itemFullPath = path.join(fullDirPath, item.name);
       if (item.isDirectory()) {
-        results.push(...getPdfsFromDir(fullPath));
+        results.push(...getPdfsFromDir(path.relative(REPORTS_BASE, itemFullPath)));
       } else if (item.name.toLowerCase().endsWith('.pdf')) {
-        // Build a URL-safe relative path from REPORTS_BASE
-        const relativePath = path.relative(REPORTS_BASE, fullPath).replace(/\\/g, '/');
+        const relativePath = path.relative(REPORTS_BASE, itemFullPath).replace(/\\/g, '/');
         results.push({
           name: item.name,
           url: '/pdfs/' + encodeURIComponent(relativePath).replace(/%2F/g, '/'),
-          size: fs.statSync(fullPath).size
+          size: fs.statSync(itemFullPath).size
         });
       }
     }
     return results;
   }
 
-  // Fallback to manifest if local dir does not exist (e.g., cloud deployment on Render)
+  // Fallback to manifest if local dir does not exist
   if (MANIFEST) {
-    const relativeKey = path.relative(REPORTS_BASE, dirPath).replace(/\\/g, '/');
+    const relativeKey = normPath;
     for (const [key, files] of Object.entries(MANIFEST)) {
       if (key === relativeKey || key.startsWith(relativeKey + '/')) {
         for (const file of files) {

@@ -2,7 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
-const { execFile } = require('child_process');
+const { spawn } = require('child_process');
+const http = require('http');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -57,7 +58,7 @@ app.use('/pdfs', (req, res, next) => {
             return full;
           }
         }
-      } catch (e) {}
+      } catch (e) { }
       return null;
     };
 
@@ -488,7 +489,7 @@ function findPdfUrlByName(filename) {
             return '/pdfs/' + encodeURIComponent(relativePath).replace(/%2F/g, '/');
           }
         }
-      } catch (e) {}
+      } catch (e) { }
       return null;
     };
     const found = searchDir(baseDir);
@@ -555,54 +556,145 @@ function getPythonExecutable() {
   return process.platform === 'win32' ? 'python' : 'python3';
 }
 
-function runPythonChatbot(prompt, callback) {
-  const pyCmd = getPythonExecutable();
-  const scriptPath = path.join(__dirname, '..', 'chatbot.py');
-  const options = {
-    cwd: path.join(__dirname, '..'),
-    env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
-  };
+// The chatbot runs as a long-lived Python sidecar rather than one process per message,
+// so the model client, the embedding model and per-session history all stay warm.
+const CHATBOT_HOST = process.env.CHATBOT_HOST || '127.0.0.1';
+const CHATBOT_PORT = parseInt(process.env.CHATBOT_PORT || '8765', 10);
+const CHATBOT_TIMEOUT_MS = parseInt(process.env.CHATBOT_TIMEOUT_MS || '120000', 10);
 
-  execFile(pyCmd, [scriptPath, prompt], options, (error, stdout, stderr) => {
-    if (error && (error.code === 'ENOENT' || error.message.includes('ENOENT'))) {
-      const fallbackCmd = pyCmd === 'python3' ? 'python' : 'python3';
-      console.log(`Primary python '${pyCmd}' failed with ENOENT. Retrying with fallback '${fallbackCmd}'...`);
-      execFile(fallbackCmd, [scriptPath, prompt], options, callback);
+let chatbotProc = null;
+let shuttingDown = false;
+let restartDelayMs = 1000;
+
+function startChatbotService(pyCmd = getPythonExecutable()) {
+  if (shuttingDown) return;
+  const scriptPath = path.join(__dirname, '..', 'chatbot_service.py');
+
+  chatbotProc = spawn(pyCmd, [scriptPath], {
+    cwd: path.join(__dirname, '..'),
+    env: {
+      ...process.env,
+      PYTHONIOENCODING: 'utf-8',
+      PYTHONUNBUFFERED: '1',
+      CHATBOT_HOST: CHATBOT_HOST,
+      CHATBOT_PORT: String(CHATBOT_PORT)
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  const relay = (stream) => {
+    stream.setEncoding('utf-8');
+    let buffer = '';
+    stream.on('data', (chunk) => {
+      buffer += chunk;
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      lines.forEach((line) => line.trim() && console.log('[chatbot]', line));
+    });
+  };
+  relay(chatbotProc.stdout);
+  relay(chatbotProc.stderr);
+
+  chatbotProc.on('error', (err) => {
+    if (err.code === 'ENOENT' && pyCmd !== 'python') {
+      console.log(`Python '${pyCmd}' not found. Retrying chatbot service with 'python'...`);
+      chatbotProc = null;
+      startChatbotService('python');
     } else {
-      callback(error, stdout, stderr);
+      console.error('Chatbot service failed to start:', err.message);
     }
   });
+
+  chatbotProc.on('exit', (code, signal) => {
+    chatbotProc = null;
+    if (shuttingDown) return;
+    console.error(`Chatbot service exited (code=${code} signal=${signal}). Restarting in ${restartDelayMs}ms.`);
+    setTimeout(() => startChatbotService(pyCmd), restartDelayMs);
+    restartDelayMs = Math.min(restartDelayMs * 2, 30000); // back off on a crash loop
+  });
+
+  console.log(`Chatbot service starting on http://${CHATBOT_HOST}:${CHATBOT_PORT} (pid ${chatbotProc.pid})`);
+}
+
+function stopChatbotService() {
+  shuttingDown = true;
+  if (chatbotProc) chatbotProc.kill('SIGTERM');
+}
+['SIGINT', 'SIGTERM'].forEach((sig) => {
+  process.on(sig, () => {
+    stopChatbotService();
+    process.exit(0);
+  });
+});
+process.on('exit', stopChatbotService);
+
+function callChatbotService(routePath, payload, callback) {
+  const body = JSON.stringify(payload);
+  const req = http.request(
+    {
+      host: CHATBOT_HOST,
+      port: CHATBOT_PORT,
+      path: routePath,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body)
+      },
+      timeout: CHATBOT_TIMEOUT_MS
+    },
+    (proxyRes) => {
+      let raw = '';
+      proxyRes.setEncoding('utf-8');
+      proxyRes.on('data', (chunk) => { raw += chunk; });
+      proxyRes.on('end', () => {
+        try {
+          callback(null, proxyRes.statusCode, JSON.parse(raw));
+        } catch (e) {
+          callback(new Error(`Chatbot service returned non-JSON: ${raw.slice(0, 200)}`));
+        }
+      });
+    }
+  );
+
+  req.on('timeout', () => req.destroy(new Error(`Chatbot service timed out after ${CHATBOT_TIMEOUT_MS}ms`)));
+  req.on('error', (err) => callback(err));
+  req.write(body);
+  req.end();
 }
 
 app.post('/api/chat', (req, res) => {
-  const { prompt } = req.body;
+  const { prompt, sessionId } = req.body;
   if (!prompt || typeof prompt !== 'string') {
     return res.status(400).json({ error: 'Prompt string is required.' });
   }
 
-  runPythonChatbot(prompt, (error, stdout, stderr) => {
+  const payload = { prompt, sessionId: typeof sessionId === 'string' ? sessionId : 'default' };
+  callChatbotService('/chat', payload, (error, status, data) => {
     if (error) {
-      const details = stderr || error.message || String(error);
-      console.error('Chatbot error:', details);
-      return res.status(500).json({ error: 'Failed to process AI chat query.', details: details });
+      const reason = error.code === 'ECONNREFUSED'
+        ? 'Chatbot service is not running yet — it may still be starting up.'
+        : error.message;
+      console.error('Chatbot error:', reason);
+      return res.status(503).json({ error: 'Failed to process AI chat query.', details: reason });
     }
-
-    const output = stdout ? stdout.toString() : '';
-    const marker = '=== AI CHATBOT RESPONSE ===';
-    let answer = output;
-    if (output.includes(marker)) {
-      answer = output.split(marker)[1].trim();
+    if (status !== 200) {
+      return res.status(status).json({ error: 'Failed to process AI chat query.', details: (data && data.error) || '' });
     }
+    res.json({ prompt, answer: data.answer, sessionId: data.sessionId, historyMessages: data.historyMessages });
+  });
+});
 
-    res.json({
-      prompt,
-      answer,
-      rawOutput: output
-    });
+app.post('/api/chat/reset', (req, res) => {
+  const sessionId = typeof req.body.sessionId === 'string' ? req.body.sessionId : 'default';
+  callChatbotService('/reset', { sessionId }, (error, status, data) => {
+    if (error) return res.status(503).json({ error: 'Chatbot service unavailable.', details: error.message });
+    res.status(status).json(data);
   });
 });
 
 // ─── Start ──────────────────────────────────────────────────────
+
+startChatbotService();
 
 app.listen(PORT, () => {
   console.log(`\n  ╔═══════════════════════════════════════════════════╗`);

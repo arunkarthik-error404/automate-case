@@ -56,3 +56,17 @@ class EmbeddingManager:
                 print(f"FastEmbed batch notice: {e}")
                 
         return [self._fallback_embedding(t) for t in texts]
+
+
+# Loading the ONNX model costs seconds (and a download on a cold cache), so the
+# manager is process-global and built on first use. Long-lived hosts (the chatbot
+# service) pay it once; callers that never embed never pay it at all.
+_MANAGER = None
+
+
+def get_embedding_manager(model_name="BAAI/bge-small-en-v1.5") -> EmbeddingManager:
+    """Return the process-wide EmbeddingManager, constructing it on first call."""
+    global _MANAGER
+    if _MANAGER is None:
+        _MANAGER = EmbeddingManager(model_name=model_name)
+    return _MANAGER

@@ -11,7 +11,12 @@ Tools:
   - semantic_search(query, top_k)    : embedding / vector search (only when needed)
   - get_entity_documents(entity_name): bulk ordered chunks for one entity (summaries)
 
-CLI contract is identical to chatbot.py so the existing sidecar can call it unchanged:
+Retrieval is never run up front — `answer_query` sends the prompt (plus any prior turns
+it is given) straight to the model, and a tool executes only if the model calls it.
+
+The demo UI talks to `chatbot_service.py`, which keeps one of these alive and owns the
+per-session history. This CLI stays for debugging and is stateless:
+
     python chatbot_v2.py "<prompt>"
     ... diagnostics ...
     === AI CHATBOT RESPONSE ===
@@ -172,7 +177,14 @@ You are an expert legal & financial research analyst specializing in Indian corp
 of such reports by calling the provided search tools — you do NOT have the data in
 context until you retrieve it.
 
-TOOL ROUTING:
+WHEN TO RETRIEVE AT ALL:
+- No search runs unless you call one. Greetings, small talk, questions about what you
+  can do, and follow-ups already answered earlier in this conversation are answered
+  directly — do NOT call a tool for them.
+- Reach for a tool only when the user wants report data you do not already have in the
+  conversation.
+
+TOOL ROUTING (once you have decided retrieval is needed):
 - Use `keyword_search` FIRST when the query names a specific person or entity, or
   contains distinctive exact strings (company names, case numbers, father's name). It
   is a precise SQL substring match and cheaper than embeddings.
@@ -204,6 +216,16 @@ FORMATTING & RESPONSE GUIDELINES:
 7. Completeness: report all dates, amounts, case numbers, courts, and parties present
    in the retrieved chunks accurately.
 """.strip()
+
+
+def user_turn(text: str):
+    """A user message as SDK content, for building conversation history."""
+    return types.Content(role="user", parts=[types.Part(text=text)])
+
+
+def model_turn(text: str):
+    """A model reply as SDK content, for building conversation history."""
+    return types.Content(role="model", parts=[types.Part(text=text)])
 
 
 def _truncate(text: str, limit: int = MAX_CHUNK_CHARS) -> str:
@@ -267,9 +289,9 @@ class CaseChatbotV2:
     """Agentic RAG chatbot: Gemini drives retrieval via automatic function calling."""
 
     def __init__(self):
-        # Constructing DBSearchTool builds an EmbeddingManager, which loads the
-        # fastembed ONNX model (downloads it on a cold cache) — a common startup stall.
-        with timed("INIT", "DBSearchTool / embedding model"):
+        # Cheap: DBSearchTool resolves its EmbeddingManager lazily, so the ONNX model
+        # only loads if semantic_search is actually called (and then only once per process).
+        with timed("INIT", "DBSearchTool"):
             self.search_tool = DBSearchTool()
         self.client = None
 
@@ -324,7 +346,10 @@ class CaseChatbotV2:
     # signature the SDK turns into a FunctionDeclaration (type hints + docstring).
 
     def _build_tools(self):
-        search_tool = self.search_tool
+        # A fresh tool per query: DBSearchTool keeps per-search scratch state
+        # (`_cached_query_vec`), which two concurrent sessions would otherwise clobber.
+        # Cheap now that the embedding model is a lazy process-wide singleton.
+        search_tool = DBSearchTool()
 
         def keyword_search(term: str, category: str = "") -> dict:
             """Direct database keyword search using SQL substring (LIKE) matching over
@@ -428,10 +453,16 @@ class CaseChatbotV2:
         return [keyword_search, semantic_search, get_entity_documents]
 
     # --- Query ------------------------------------------------------------------
-    def answer_query(self, user_query: str) -> str:
-        """Answer a query by letting Gemini call the search tools (automatic FC)."""
+    def answer_query(self, user_query: str, history=None) -> str:
+        """Answer a query by letting Gemini call the search tools (automatic FC).
+
+        `history` is an optional list of prior `types.Content` turns (see
+        `user_turn` / `model_turn`). It is sent as leading context so the model can
+        answer follow-ups without retrieving anything. Nothing is retrieved unless
+        the model itself calls a tool.
+        """
         print(f"\n[QUERY] {user_query}")
-        log("QUERY", f"{user_query!r} ({len(user_query)} chars)")
+        log("QUERY", f"{user_query!r} ({len(user_query)} chars, history={len(history or [])} turns)")
 
         if not self.client:
             log("QUERY", "ABORT: no genai client")
@@ -446,9 +477,10 @@ class CaseChatbotV2:
             tools=tools,
             system_instruction=SYSTEM_INSTRUCTION,
         )
+        contents = list(history or []) + [user_turn(user_query)]
         log(
             "MODEL",
-            f"generate_content model={model_name} "
+            f"generate_content model={model_name} contents={len(contents)} turns "
             f"tools=[{', '.join(t.__name__ for t in tools)}] (automatic FC on)",
         )
 
@@ -456,7 +488,7 @@ class CaseChatbotV2:
         try:
             response = self.client.models.generate_content(
                 model=model_name,
-                contents=user_query,
+                contents=contents,
                 config=config,
             )
         except Exception as e:

@@ -609,6 +609,16 @@ function initAiChatbot() {
     }
   });
 
+  // Identifies this tab so the server keeps its conversation history separate.
+  function getChatSessionId() {
+    let id = sessionStorage.getItem('chatSessionId');
+    if (!id) {
+      id = 'chat-' + Math.random().toString(36).slice(2) + '-' + Date.now().toString(36);
+      sessionStorage.setItem('chatSessionId', id);
+    }
+    return id;
+  }
+
   async function sendChatMessage(promptText) {
     appendMessage(promptText, 'user');
     chatInput.value = '';
@@ -619,7 +629,7 @@ function initAiChatbot() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: promptText })
+        body: JSON.stringify({ prompt: promptText, sessionId: getChatSessionId() })
       });
       const data = await res.json();
       removeMessage(loadingId);

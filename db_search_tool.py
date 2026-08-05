@@ -2,7 +2,7 @@ import json
 import sqlite3
 import numpy as np
 import psycopg2
-from rag.embeddings import EmbeddingManager
+from rag.embeddings import get_embedding_manager
 from setup_db import connect_postgres, DB_NAME, SQLITE_DB_PATH, init_sqlite_fallback
 
 class DBSearchTool:
@@ -10,7 +10,11 @@ class DBSearchTool:
 
     def __init__(self, db_name=DB_NAME):
         self.db_name = db_name
-        self.embedder = EmbeddingManager()
+
+    @property
+    def embedder(self):
+        """Resolved lazily — constructing the tool must not load the ONNX model."""
+        return get_embedding_manager()
 
     def _extract_query_terms(self, query: str):
         import re

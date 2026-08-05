@@ -366,8 +366,7 @@ app.get('/api/search', (req, res) => {
 
   // Global Asset Search Details
   if (type === 'asset') {
-    const assetDir = path.join(REPORTS_BASE, 'Asset based search');
-    const pdfs = getPdfsFromDir(assetDir);
+    const pdfs = getPdfsFromDir('Asset based search');
     return res.json({
       name: 'Global Asset Details',
       type: 'asset',
@@ -381,8 +380,7 @@ app.get('/api/search', (req, res) => {
 
   // Global Debtor Search Reports
   if (type === 'debtor') {
-    const debtorDir = path.join(REPORTS_BASE, 'Debtor based search - Entities');
-    const pdfs = getPdfsFromDir(debtorDir);
+    const pdfs = getPdfsFromDir('Debtor based search - Entities');
     return res.json({
       name: 'Debtor Search Reports (All Entities)',
       type: 'debtor',
@@ -414,8 +412,7 @@ app.get('/api/search', (req, res) => {
     for (const [subCategory, dirPaths] of Object.entries(subCategories)) {
       const pdfs = [];
       for (const dirPath of dirPaths) {
-        const fullDirPath = path.join(REPORTS_BASE, dirPath);
-        pdfs.push(...getPdfsFromDir(fullDirPath));
+        pdfs.push(...getPdfsFromDir(dirPath));
       }
       if (pdfs.length > 0) {
         result[category][subCategory] = pdfs;

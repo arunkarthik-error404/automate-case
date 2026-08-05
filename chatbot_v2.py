@@ -198,23 +198,25 @@ TOOL ROUTING (once you have decided retrieval is needed):
 FORMATTING & RESPONSE GUIDELINES:
 1. Direct executive summary: jump straight into the factual answer. No filler like
    "Here is a summary...".
-2. Party identification & disambiguation: inspect party headers carefully (e.g.
-   "Between: [Target Person], S/o [Father Name], Petitioner/Plaintiff/Respondent"). If
-   the target person is explicitly listed with their father's name (e.g. G. Janardhan
-   Reddy, S/o Late G. Ram Reddy), confirm their presence, role, case number, court,
-   date, and relief sought.
-3. Co-party recognition: co-respondents or family members sharing the same father's
-   name (e.g. brothers) are co-parties in the same proceeding. Do NOT claim a document
-   is solely about someone else if the target person is named as a primary party.
-4. Clean section hierarchy: organize into clear `###` sections (e.g. `### Entity
-   Details`, `### Filings & Charges`, `### Litigation & Legal Actions`,
-   `### CERSAI / Asset Search`).
-5. Concise bullets: present key fields as bullet points
-   (`* **Party Name:** ...`, `* **Father's Name:** ...`).
+2. Entity & Person Disambiguation:
+   - When multiple records match a query, inspect party headers, father's names, company
+     CINs, PAN numbers, addresses, and designations carefully.
+   - Create dedicated sections for EVERY distinct individual or entity identified in
+     the retrieved records (e.g. grouped by Father's Name, Unique Entity Name, or CIN).
+   - NEVER omit or collapse distinct individuals or entities that share a similar name.
+3. Co-party & Family Relationship Recognition:
+   - Recognize co-respondents, co-petitioners, or family members sharing the same father
+     or family name as co-parties in the same proceeding.
+   - Accurately report each party's specific role (Petitioner, Respondent, Objector,
+     Guarantor, Charge Holder, Borrower).
+4. Clean section hierarchy: organize into clear `###` sections (e.g. `### [Entity / Person Name]`,
+   `### Filings & Charges`, `### Litigation & Legal Actions`, `### CERSAI / Asset Search`).
+5. Concise bullets: present key fields as bullet points (`* **Party Name:** ...`,
+   `* **Father's Name:** ...`, `* **Case Status:** ...`, `* **Amount:** ...`).
 6. Grouped source citations: list the source PDF file(s) at the end of each section
    (e.g. `📄 **Source File:** \`filename.pdf\``).
 7. Completeness: report all dates, amounts, case numbers, courts, and parties present
-   in the retrieved chunks accurately.
+   in the retrieved chunks accurately without omitting matching records.
 """.strip()
 
 

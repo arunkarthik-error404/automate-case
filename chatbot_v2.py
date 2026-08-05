@@ -21,32 +21,80 @@ CLI contract is identical to chatbot.py so the existing sidecar can call it unch
 import os
 import sys
 import json
+import time
 import tempfile
+import traceback
+from contextlib import contextmanager
+
+_T0 = time.perf_counter()  # set before the heavy imports so we can time them too
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
-from dotenv import load_dotenv
-from google.oauth2 import service_account
+# --- Diagnostics -----------------------------------------------------------------
+# Logs go to stderr by default so they never pollute the answer the sidecar scrapes.
+# Set CHATBOT_LOG_STREAM=stdout to surface them in the demo UI's rawOutput instead.
+# Set CHATBOT_DEBUG=0 to silence them.
+DEBUG = os.getenv("CHATBOT_DEBUG", "1").lower() not in ("0", "false", "no")
+_LOG_STREAM = sys.stdout if os.getenv("CHATBOT_LOG_STREAM") == "stdout" else sys.stderr
 
-from db_search_tool import DBSearchTool
-from setup_db import connect_postgres, DB_NAME, SQLITE_DB_PATH, init_sqlite_fallback
 
-load_dotenv()
+def log(stage: str, msg: str = "") -> None:
+    """Timestamped boundary log: [ 12.34s] [STAGE] message."""
+    if not DEBUG:
+        return
+    print(f"[{time.perf_counter() - _T0:7.2f}s] [{stage}] {msg}", file=_LOG_STREAM, flush=True)
+
+
+@contextmanager
+def timed(stage: str, msg: str = ""):
+    """Log entry/exit of a step with its own duration, and never swallow the error."""
+    log(stage, f"START {msg}")
+    t = time.perf_counter()
+    try:
+        yield
+    except Exception as e:
+        log(stage, f"FAILED after {time.perf_counter() - t:.2f}s: {type(e).__name__}: {e}")
+        raise
+    else:
+        log(stage, f"DONE in {time.perf_counter() - t:.2f}s {msg}")
+
+
+log("BOOT", f"python={sys.version.split()[0]} pid={os.getpid()} cwd={os.getcwd()}")
+
+with timed("IMPORT", "dotenv + google.oauth2"):
+    from dotenv import load_dotenv
+    from google.oauth2 import service_account
+
+# NOTE: importing db_search_tool pulls in numpy/psycopg2/fastembed's module graph.
+with timed("IMPORT", "db_search_tool + setup_db"):
+    from db_search_tool import DBSearchTool
+    from setup_db import connect_postgres, DB_NAME, SQLITE_DB_PATH, init_sqlite_fallback
+
+with timed("ENV", ".env load"):
+    load_dotenv()
 
 # The new SDK is required for automatic function calling. No legacy fallback in v2.
-from google import genai
-from google.genai import types
+with timed("IMPORT", "google.genai"):
+    from google import genai
+    from google.genai import types
 
 MAX_CHUNK_CHARS = 800  # keep each tool result token-bounded
 
 
 def get_gcp_credentials():
     """Load GCP service-account credentials from env JSON, an env path, or Render secrets."""
-    svc_key_json = os.getenv("GCP_SERVICE_ACCOUNT_JSON") or os.getenv("GOOGLE_CREDENTIALS_JSON")
+    svc_key_json = os.getenv("GCP_SERVICE_ACCOUNT_JSON") or os.getenv(
+        "GOOGLE_CREDENTIALS_JSON"
+    )
     svc_key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    log(
+        "AUTH",
+        f"env json={'set' if svc_key_json else 'unset'} "
+        f"path={svc_key_path or 'unset'}",
+    )
 
     # If the path in the env var doesn't exist on this machine, ignore it.
     if svc_key_path and not os.path.exists(svc_key_path):
@@ -80,7 +128,9 @@ def get_gcp_credentials():
             creds = service_account.Credentials.from_service_account_info(
                 info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
             )
-            print(f"[AUTH SUCCESS] Loaded GCP service account for '{info.get('client_email')}' via env var.")
+            print(
+                f"[AUTH SUCCESS] Loaded GCP service account for '{info.get('client_email')}' via env var."
+            )
             return creds
         except Exception as e:
             print(f"[AUTH ERROR] Failed to parse GCP_SERVICE_ACCOUNT_JSON env var: {e}")
@@ -97,16 +147,22 @@ def get_gcp_credentials():
                 break
 
     if svc_key_path and os.path.exists(svc_key_path):
+        log("AUTH", f"loading service account file '{svc_key_path}'")
         try:
             creds = service_account.Credentials.from_service_account_file(
                 svc_key_path, scopes=["https://www.googleapis.com/auth/cloud-platform"]
             )
             os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = svc_key_path
-            print(f"[AUTH SUCCESS] Loaded GCP service account from file '{svc_key_path}'.")
+            print(
+                f"[AUTH SUCCESS] Loaded GCP service account from file '{svc_key_path}'."
+            )
             return creds
         except Exception as e:
-            print(f"[AUTH ERROR] Failed to load GCP service account from file '{svc_key_path}': {e}")
+            print(
+                f"[AUTH ERROR] Failed to load GCP service account from file '{svc_key_path}': {e}"
+            )
 
+    log("AUTH", "no service-account credentials found (will try API key / ADC)")
     return None
 
 
@@ -161,7 +217,13 @@ def _keyword_search_rows(term: str, category: str):
     like = f"%{term}%"
     cat_like = f"%{category}%" if category else None
 
+    t = time.perf_counter()
     pg_conn = connect_postgres(DB_NAME)
+    log(
+        "DB",
+        f"connect_postgres -> {'connected' if pg_conn else 'unavailable, using sqlite'} "
+        f"({time.perf_counter() - t:.2f}s)",
+    )
     if pg_conn:
         cur = pg_conn.cursor()
         sql = """
@@ -182,6 +244,7 @@ def _keyword_search_rows(term: str, category: str):
 
     init_sqlite_fallback()
     import sqlite3
+
     conn = sqlite3.connect(SQLITE_DB_PATH)
     cur = conn.cursor()
     sql = """
@@ -204,27 +267,57 @@ class CaseChatbotV2:
     """Agentic RAG chatbot: Gemini drives retrieval via automatic function calling."""
 
     def __init__(self):
-        self.search_tool = DBSearchTool()
+        # Constructing DBSearchTool builds an EmbeddingManager, which loads the
+        # fastembed ONNX model (downloads it on a cold cache) — a common startup stall.
+        with timed("INIT", "DBSearchTool / embedding model"):
+            self.search_tool = DBSearchTool()
         self.client = None
 
         project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "eco-seeker-458712-i8")
         location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
         use_vertex = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "true").lower() == "true"
         api_key = os.getenv("GEMINI_API_KEY")
-        creds = get_gcp_credentials()
+        log(
+            "INIT",
+            f"project={project_id} location={location} use_vertex={use_vertex} "
+            f"api_key={'set' if api_key else 'unset'} "
+            f"model={os.getenv('VERTEX_MODEL', 'gemini-3.1-flash')}",
+        )
 
+        with timed("INIT", "get_gcp_credentials"):
+            creds = get_gcp_credentials()
+
+        t = time.perf_counter()
         try:
             if creds:
-                print(f"Initializing Gemini Client via Vertex AI Service Account (Project: {project_id})...")
-                self.client = genai.Client(vertexai=True, project=project_id, location=location, credentials=creds)
+                print(
+                    f"Initializing Gemini Client via Vertex AI Service Account (Project: {project_id})..."
+                )
+                self.client = genai.Client(
+                    vertexai=True,
+                    project=project_id,
+                    location=location,
+                    credentials=creds,
+                )
             elif api_key:
                 print("Initializing Gemini Client via API Key...")
                 self.client = genai.Client(api_key=api_key)
             elif use_vertex:
-                print(f"Attempting Gemini Client via default Vertex AI ADC (Project: {project_id})...")
-                self.client = genai.Client(vertexai=True, project=project_id, location=location)
+                print(
+                    f"Attempting Gemini Client via default Vertex AI ADC (Project: {project_id})..."
+                )
+                self.client = genai.Client(
+                    vertexai=True, project=project_id, location=location
+                )
         except Exception as e:
             print(f"GenAI Client initialization notice: {e}")
+            log("INIT", f"client init FAILED: {type(e).__name__}: {e}")
+
+        log(
+            "INIT",
+            f"genai client {'ready' if self.client else 'NOT created'} "
+            f"({time.perf_counter() - t:.2f}s)",
+        )
 
     # --- Tools ------------------------------------------------------------------
     # Defined as closures so they capture self.search_tool while presenting the clean
@@ -243,7 +336,8 @@ class CaseChatbotV2:
                     "Janardhan Reddy").
                 category: Optional category filter, e.g. "ROC Search", "Litigation Search".
             """
-            print(f"[TOOL] keyword_search(term={term!r}, category={category!r})")
+            log("TOOL", f"keyword_search(term={term!r}, category={category!r})")
+            t = time.perf_counter()
             try:
                 rows = _keyword_search_rows(term, category)
                 results = [
@@ -256,8 +350,13 @@ class CaseChatbotV2:
                     }
                     for r in rows
                 ]
+                log(
+                    "TOOL",
+                    f"keyword_search -> {len(results)} rows ({time.perf_counter() - t:.2f}s)",
+                )
                 return {"results": results, "count": len(results)}
             except Exception as e:
+                log("TOOL", f"keyword_search ERROR: {type(e).__name__}: {e}")
                 return {"results": [], "error": str(e)}
 
         def semantic_search(query: str, top_k: int = 10) -> dict:
@@ -269,7 +368,8 @@ class CaseChatbotV2:
                 query: The natural-language query to embed and match semantically.
                 top_k: Maximum number of chunks to return (default 10).
             """
-            print(f"[TOOL] semantic_search(query={query!r}, top_k={top_k})")
+            log("TOOL", f"semantic_search(query={query!r}, top_k={top_k})")
+            t = time.perf_counter()
             try:
                 chunks = search_tool.search_similar_chunks(query=query, top_k=top_k)
                 results = [
@@ -282,8 +382,13 @@ class CaseChatbotV2:
                     }
                     for c in chunks
                 ]
+                log(
+                    "TOOL",
+                    f"semantic_search -> {len(results)} chunks ({time.perf_counter() - t:.2f}s)",
+                )
                 return {"results": results, "count": len(results)}
             except Exception as e:
+                log("TOOL", f"semantic_search ERROR: {type(e).__name__}: {e}")
                 return {"results": [], "error": str(e)}
 
         def get_entity_documents(entity_name: str) -> dict:
@@ -294,9 +399,12 @@ class CaseChatbotV2:
             Args:
                 entity_name: The entity or file name to pull documents for.
             """
-            print(f"[TOOL] get_entity_documents(entity_name={entity_name!r})")
+            log("TOOL", f"get_entity_documents(entity_name={entity_name!r})")
+            t = time.perf_counter()
             try:
-                chunks = search_tool.get_document_chunks_for_summary(entity_name, max_chunks=25)
+                chunks = search_tool.get_document_chunks_for_summary(
+                    entity_name, max_chunks=25
+                )
                 results = [
                     {
                         "file_name": c["file_name"],
@@ -307,8 +415,14 @@ class CaseChatbotV2:
                     }
                     for c in chunks
                 ]
+                log(
+                    "TOOL",
+                    f"get_entity_documents -> {len(results)} chunks "
+                    f"({time.perf_counter() - t:.2f}s)",
+                )
                 return {"results": results, "count": len(results)}
             except Exception as e:
+                log("TOOL", f"get_entity_documents ERROR: {type(e).__name__}: {e}")
                 return {"results": [], "error": str(e)}
 
         return [keyword_search, semantic_search, get_entity_documents]
@@ -317,39 +431,103 @@ class CaseChatbotV2:
     def answer_query(self, user_query: str) -> str:
         """Answer a query by letting Gemini call the search tools (automatic FC)."""
         print(f"\n[QUERY] {user_query}")
+        log("QUERY", f"{user_query!r} ({len(user_query)} chars)")
 
         if not self.client:
+            log("QUERY", "ABORT: no genai client")
             return (
                 "[Notice: Gemini client not initialized. Set GCP service-account "
                 "credentials or GEMINI_API_KEY to enable the agentic chatbot.]"
             )
 
-        model_name = os.getenv("VERTEX_MODEL", "gemini-2.5-flash")
+        model_name = os.getenv("VERTEX_MODEL", "gemini-3.1-flash")
+        tools = self._build_tools()
         config = types.GenerateContentConfig(
-            tools=self._build_tools(),
+            tools=tools,
             system_instruction=SYSTEM_INSTRUCTION,
         )
+        log(
+            "MODEL",
+            f"generate_content model={model_name} "
+            f"tools=[{', '.join(t.__name__ for t in tools)}] (automatic FC on)",
+        )
 
+        t = time.perf_counter()
         try:
             response = self.client.models.generate_content(
                 model=model_name,
                 contents=user_query,
                 config=config,
             )
-            return response.text or "No answer produced."
         except Exception as e:
+            log("MODEL", f"FAILED after {time.perf_counter() - t:.2f}s: {type(e).__name__}: {e}")
+            if DEBUG:
+                traceback.print_exc(file=_LOG_STREAM)
+                _LOG_STREAM.flush()
             return f"[Vertex AI Response Error: {e}]"
+
+        log("MODEL", f"responded in {time.perf_counter() - t:.2f}s")
+        self._log_response(response)
+        text = response.text or ""
+        if not text.strip():
+            log("MODEL", "WARNING: response.text is empty -> returning placeholder")
+        return text or "No answer produced."
+
+    @staticmethod
+    def _log_response(response) -> None:
+        """Explain WHY a response is empty/slow: FC round-trips, finish reason, tokens."""
+        if not DEBUG:
+            return
+        try:
+            history = getattr(response, "automatic_function_calling_history", None) or []
+            log("MODEL", f"automatic FC history entries: {len(history)}")
+
+            calls = getattr(response, "function_calls", None) or []
+            if calls:
+                # Pending calls here mean the SDK stopped before executing them.
+                log("MODEL", f"UNEXECUTED function_calls: {[c.name for c in calls]}")
+
+            for i, cand in enumerate(getattr(response, "candidates", None) or []):
+                parts = getattr(getattr(cand, "content", None), "parts", None) or []
+                kinds = [
+                    "fn:" + p.function_call.name
+                    if getattr(p, "function_call", None)
+                    else (f"text:{len(p.text)}" if getattr(p, "text", None) else "other")
+                    for p in parts
+                ]
+                log(
+                    "MODEL",
+                    f"candidate[{i}] finish_reason={getattr(cand, 'finish_reason', None)} "
+                    f"parts={kinds}",
+                )
+
+            usage = getattr(response, "usage_metadata", None)
+            if usage:
+                log(
+                    "MODEL",
+                    f"tokens prompt={getattr(usage, 'prompt_token_count', None)} "
+                    f"candidates={getattr(usage, 'candidates_token_count', None)} "
+                    f"total={getattr(usage, 'total_token_count', None)}",
+                )
+        except Exception as e:
+            log("MODEL", f"response introspection failed: {type(e).__name__}: {e}")
 
 
 if __name__ == "__main__":
-    bot = CaseChatbotV2()
+    with timed("MAIN", "CaseChatbotV2 construction"):
+        bot = CaseChatbotV2()
     if len(sys.argv) > 1:
         prompt = " ".join(sys.argv[1:])
         ans = bot.answer_query(prompt)
+        log("MAIN", f"answer {len(ans)} chars; total wall clock {time.perf_counter() - _T0:.2f}s")
         print("\n=== AI CHATBOT RESPONSE ===")
         print(ans)
     else:
         print("\nAgentic Case Search Chatbot (v2) Ready.")
         print("Example queries:")
-        print(" - python chatbot_v2.py 'details about G Janardhan Reddy son of Gurumurthy Reddy'")
-        print(" - python chatbot_v2.py 'summary of ROC search for GVR ELECTRO TECHNICS'")
+        print(
+            " - python chatbot_v2.py 'details about G Janardhan Reddy son of Gurumurthy Reddy'"
+        )
+        print(
+            " - python chatbot_v2.py 'summary of ROC search for GVR ELECTRO TECHNICS'"
+        )

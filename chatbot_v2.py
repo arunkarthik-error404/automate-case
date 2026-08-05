@@ -309,7 +309,7 @@ class CaseChatbotV2:
             "INIT",
             f"project={project_id} location={location} use_vertex={use_vertex} "
             f"api_key={'set' if api_key else 'unset'} "
-            f"model={os.getenv('VERTEX_MODEL', 'gemini-3.6-flash')}",
+            f"model={os.getenv('VERTEX_MODEL', 'gemini-2.5-flash')}",
         )
 
         with timed("INIT", "get_gcp_credentials"):
@@ -480,7 +480,7 @@ class CaseChatbotV2:
                 "credentials or GEMINI_API_KEY to enable the agentic chatbot.]"
             )
 
-        model_name = os.getenv("VERTEX_MODEL", "gemini-3.6-flash")
+        model_name = os.getenv("VERTEX_MODEL", "gemini-2.5-flash")
         tools = self._build_tools()
         config = types.GenerateContentConfig(
             tools=tools,

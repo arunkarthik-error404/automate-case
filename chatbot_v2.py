@@ -235,8 +235,17 @@ def _truncate(text: str, limit: int = MAX_CHUNK_CHARS) -> str:
 
 
 def _keyword_search_rows(term: str, category: str):
-    """Run the LIKE query against Postgres if available, else the SQLite fallback."""
-    like = f"%{term}%"
+    """Run tokenized substring query against Postgres if available, else SQLite fallback."""
+    import re
+    STOP_WORDS = {
+        'summary', 'search', 'report', 'reports', 'details', 'info', 'information', 
+        'show', 'get', 'give', 'find', 'the', 'for', 'a', 'an', 'of', 'in', 'c/w', 
+        'and', 'all', 'cases', 'case', 'related', 'to', 'me', 'please', 'can', 'you'
+    }
+    tokens = [t for t in re.findall(r'\b[A-Za-z0-9]+\b', term) if t.lower() not in STOP_WORDS]
+    if not tokens:
+        tokens = [term]
+
     if category:
         cat_lower = category.lower().strip()
         if "asset" in cat_lower:
@@ -261,23 +270,33 @@ def _keyword_search_rows(term: str, category: str):
     )
     if pg_conn:
         cur = pg_conn.cursor()
-        sql = """
+        where_clauses = []
+        pg_params = []
+        for tok in tokens:
+            t_like = f"%{tok}%"
+            where_clauses.append("(d.entity_name ILIKE %s OR d.file_name ILIKE %s OR c.chunk_text ILIKE %s OR d.category ILIKE %s)")
+            pg_params.extend([t_like, t_like, t_like, t_like])
+
+        token_sql = " AND ".join(where_clauses)
+        cat_sql = " AND d.category ILIKE %s" if cat_like else ""
+        if cat_like:
+            pg_params.append(cat_like)
+
+        sql = f"""
             WITH RankedChunks AS (
                 SELECT d.file_name, d.entity_name, d.category, c.page_number, c.chunk_text,
-                       ROW_NUMBER() OVER(PARTITION BY d.id ORDER BY c.page_number ASC, c.chunk_index ASC) as rn
+                       ROW_NUMBER() OVER(PARTITION BY d.file_name ORDER BY c.page_number ASC, c.chunk_index ASC) as rn
                 FROM document_chunks c JOIN documents d ON c.document_id = d.id
-                WHERE (d.entity_name ILIKE %s OR d.file_name ILIKE %s OR c.chunk_text ILIKE %s)
-                  {cat_clause}
+                WHERE {token_sql} {cat_sql}
                   AND LENGTH(c.chunk_text) > 40
             )
             SELECT file_name, entity_name, category, page_number, chunk_text
             FROM RankedChunks
             WHERE rn <= 2
             ORDER BY file_name ASC
-            LIMIT 40;
-        """.format(cat_clause="AND d.category ILIKE %s" if cat_like else "")
-        params = [like, like, like] + ([cat_like] if cat_like else [])
-        cur.execute(sql, params)
+            LIMIT 50;
+        """
+        cur.execute(sql, pg_params)
         rows = cur.fetchall()
         cur.close()
         pg_conn.close()
@@ -288,23 +307,33 @@ def _keyword_search_rows(term: str, category: str):
 
     conn = sqlite3.connect(SQLITE_DB_PATH)
     cur = conn.cursor()
-    sql = """
+    where_clauses = []
+    sq_params = []
+    for tok in tokens:
+        t_like = f"%{tok}%"
+        where_clauses.append("(d.entity_name LIKE ? OR d.file_name LIKE ? OR c.chunk_text LIKE ? OR d.category LIKE ?)")
+        sq_params.extend([t_like, t_like, t_like, t_like])
+
+    token_sql = " AND ".join(where_clauses)
+    cat_sql = " AND d.category LIKE ?" if cat_like else ""
+    if cat_like:
+        sq_params.append(cat_like)
+
+    sql = f"""
         WITH RankedChunks AS (
             SELECT d.file_name, d.entity_name, d.category, c.page_number, c.chunk_text,
-                   ROW_NUMBER() OVER(PARTITION BY d.id ORDER BY c.page_number ASC, c.chunk_index ASC) as rn
+                   ROW_NUMBER() OVER(PARTITION BY d.file_name ORDER BY c.page_number ASC, c.chunk_index ASC) as rn
             FROM document_chunks c JOIN documents d ON c.document_id = d.id
-            WHERE (d.entity_name LIKE ? OR d.file_name LIKE ? OR c.chunk_text LIKE ?)
-              {cat_clause}
+            WHERE {token_sql} {cat_sql}
               AND LENGTH(c.chunk_text) > 40
         )
         SELECT file_name, entity_name, category, page_number, chunk_text
         FROM RankedChunks
         WHERE rn <= 2
         ORDER BY file_name ASC
-        LIMIT 40;
-    """.format(cat_clause="AND d.category LIKE ?" if cat_like else "")
-    params = [like, like, like] + ([cat_like] if cat_like else [])
-    cur.execute(sql, params)
+        LIMIT 50;
+    """
+    cur.execute(sql, sq_params)
     rows = cur.fetchall()
     conn.close()
     return rows

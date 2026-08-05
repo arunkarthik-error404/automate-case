@@ -215,19 +215,44 @@ class DBSearchTool:
 
         return results
 
-    def get_document_chunks_for_summary(self, entity_or_file: str, max_chunks: int = 25):
-        search_pattern = f"%{entity_or_file}%"
+    def get_document_chunks_for_summary(self, entity_or_file: str, max_chunks: int = 35):
+        import re
+        STOP_WORDS = {
+            'center', 'centre', 'limited', 'pvt', 'services', 'report', 'reports', 'details', 
+            'show', 'get', 'give', 'find', 'the', 'for', 'a', 'an', 'of', 'in', 'and', 'all', 
+            'cases', 'case', 'related', 'to', 'me', 'please', 'can', 'you', 'debtor', 'asset'
+        }
+        tokens = [t for t in re.findall(r'\b[A-Za-z0-9]+\b', entity_or_file) if t.lower() not in STOP_WORDS]
+        if not tokens:
+            tokens = [entity_or_file]
+
         pg_conn = connect_postgres(self.db_name)
         if pg_conn:
             cursor = pg_conn.cursor()
-            sql = """
-                SELECT d.file_name, d.entity_name, d.category, c.page_number, c.chunk_text
-                FROM document_chunks c JOIN documents d ON c.document_id = d.id
-                WHERE (d.entity_name ILIKE %s OR d.file_name ILIKE %s OR c.chunk_text ILIKE %s)
-                  AND LENGTH(c.chunk_text) > 40
-                ORDER BY d.file_name ASC, c.page_number ASC, c.chunk_index ASC LIMIT %s;
+            where_clauses = []
+            pg_params = []
+            for tok in tokens:
+                pat = f"%{tok}%"
+                where_clauses.append("(d.entity_name ILIKE %s OR d.file_name ILIKE %s OR c.chunk_text ILIKE %s)")
+                pg_params.extend([pat, pat, pat])
+            
+            token_sql = " AND ".join(where_clauses)
+            pg_params.append(max_chunks)
+
+            sql = f"""
+                WITH RankedChunks AS (
+                    SELECT d.file_name, d.entity_name, d.category, c.page_number, c.chunk_text,
+                           ROW_NUMBER() OVER(PARTITION BY d.file_name ORDER BY c.page_number ASC, c.chunk_index ASC) as rn
+                    FROM document_chunks c JOIN documents d ON c.document_id = d.id
+                    WHERE {token_sql}
+                      AND LENGTH(c.chunk_text) > 40
+                )
+                SELECT file_name, entity_name, category, page_number, chunk_text
+                FROM RankedChunks
+                WHERE rn <= 3
+                ORDER BY file_name ASC LIMIT %s;
             """
-            cursor.execute(sql, (search_pattern, search_pattern, search_pattern, max_chunks))
+            cursor.execute(sql, pg_params)
             rows = cursor.fetchall()
             cursor.close()
             pg_conn.close()
@@ -235,14 +260,30 @@ class DBSearchTool:
         else:
             conn = sqlite3.connect(SQLITE_DB_PATH)
             cursor = conn.cursor()
-            sql = """
-                SELECT d.file_name, d.entity_name, d.category, c.page_number, c.chunk_text
-                FROM document_chunks c JOIN documents d ON c.document_id = d.id
-                WHERE (d.entity_name LIKE ? OR d.file_name LIKE ? OR c.chunk_text LIKE ?)
-                  AND LENGTH(c.chunk_text) > 40
-                ORDER BY d.file_name ASC, c.page_number ASC, c.chunk_index ASC LIMIT ?;
+            where_clauses = []
+            sq_params = []
+            for tok in tokens:
+                pat = f"%{tok}%"
+                where_clauses.append("(d.entity_name LIKE ? OR d.file_name LIKE ? OR c.chunk_text LIKE ?)")
+                sq_params.extend([pat, pat, pat])
+            
+            token_sql = " AND ".join(where_clauses)
+            sq_params.append(max_chunks)
+
+            sql = f"""
+                WITH RankedChunks AS (
+                    SELECT d.file_name, d.entity_name, d.category, c.page_number, c.chunk_text,
+                           ROW_NUMBER() OVER(PARTITION BY d.file_name ORDER BY c.page_number ASC, c.chunk_index ASC) as rn
+                    FROM document_chunks c JOIN documents d ON c.document_id = d.id
+                    WHERE {token_sql}
+                      AND LENGTH(c.chunk_text) > 40
+                )
+                SELECT file_name, entity_name, category, page_number, chunk_text
+                FROM RankedChunks
+                WHERE rn <= 3
+                ORDER BY file_name ASC LIMIT ?;
             """
-            cursor.execute(sql, (search_pattern, search_pattern, search_pattern, max_chunks))
+            cursor.execute(sql, sq_params)
             rows = cursor.fetchall()
             conn.close()
             return [{"file_name": r[0], "entity_name": r[1], "category": r[2], "page_number": r[3], "chunk_text": r[4]} for r in rows]

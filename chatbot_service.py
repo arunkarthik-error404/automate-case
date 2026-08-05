@@ -109,7 +109,9 @@ class ChatHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        # HEAD carries the same headers as GET but no body
+        if not getattr(self, "_head_only", False):
+            self.wfile.write(body)
 
     def _read_json(self):
         """Return the parsed body, or None after having already sent an error."""
@@ -151,6 +153,14 @@ class ChatHandler(BaseHTTPRequestHandler):
             )
         else:
             self._send(404, {"error": f"No route {path}"})
+
+    def do_HEAD(self):
+        """Health checkers probe with HEAD; without this the base class returns 501."""
+        self._head_only = True
+        try:
+            self.do_GET()
+        finally:
+            self._head_only = False
 
     def do_POST(self):
         path = self.path.split("?")[0].rstrip("/") or "/"

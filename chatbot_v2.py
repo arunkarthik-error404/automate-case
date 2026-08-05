@@ -50,7 +50,11 @@ def log(stage: str, msg: str = "") -> None:
     """Timestamped boundary log: [ 12.34s] [STAGE] message."""
     if not DEBUG:
         return
-    print(f"[{time.perf_counter() - _T0:7.2f}s] [{stage}] {msg}", file=_LOG_STREAM, flush=True)
+    print(
+        f"[{time.perf_counter() - _T0:7.2f}s] [{stage}] {msg}",
+        file=_LOG_STREAM,
+        flush=True,
+    )
 
 
 @contextmanager
@@ -61,7 +65,10 @@ def timed(stage: str, msg: str = ""):
     try:
         yield
     except Exception as e:
-        log(stage, f"FAILED after {time.perf_counter() - t:.2f}s: {type(e).__name__}: {e}")
+        log(
+            stage,
+            f"FAILED after {time.perf_counter() - t:.2f}s: {type(e).__name__}: {e}",
+        )
         raise
     else:
         log(stage, f"DONE in {time.perf_counter() - t:.2f}s {msg}")
@@ -97,8 +104,7 @@ def get_gcp_credentials():
     svc_key_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     log(
         "AUTH",
-        f"env json={'set' if svc_key_json else 'unset'} "
-        f"path={svc_key_path or 'unset'}",
+        f"env json={'set' if svc_key_json else 'unset'} path={svc_key_path or 'unset'}",
     )
 
     # If the path in the env var doesn't exist on this machine, ignore it.
@@ -303,7 +309,7 @@ class CaseChatbotV2:
             "INIT",
             f"project={project_id} location={location} use_vertex={use_vertex} "
             f"api_key={'set' if api_key else 'unset'} "
-            f"model={os.getenv('VERTEX_MODEL', 'gemini-3.1-flash')}",
+            f"model={os.getenv('VERTEX_MODEL', 'gemini-3.6-flash')}",
         )
 
         with timed("INIT", "get_gcp_credentials"):
@@ -462,7 +468,10 @@ class CaseChatbotV2:
         the model itself calls a tool.
         """
         print(f"\n[QUERY] {user_query}")
-        log("QUERY", f"{user_query!r} ({len(user_query)} chars, history={len(history or [])} turns)")
+        log(
+            "QUERY",
+            f"{user_query!r} ({len(user_query)} chars, history={len(history or [])} turns)",
+        )
 
         if not self.client:
             log("QUERY", "ABORT: no genai client")
@@ -471,7 +480,7 @@ class CaseChatbotV2:
                 "credentials or GEMINI_API_KEY to enable the agentic chatbot.]"
             )
 
-        model_name = os.getenv("VERTEX_MODEL", "gemini-3.1-flash")
+        model_name = os.getenv("VERTEX_MODEL", "gemini-3.6-flash")
         tools = self._build_tools()
         config = types.GenerateContentConfig(
             tools=tools,
@@ -492,7 +501,10 @@ class CaseChatbotV2:
                 config=config,
             )
         except Exception as e:
-            log("MODEL", f"FAILED after {time.perf_counter() - t:.2f}s: {type(e).__name__}: {e}")
+            log(
+                "MODEL",
+                f"FAILED after {time.perf_counter() - t:.2f}s: {type(e).__name__}: {e}",
+            )
             if DEBUG:
                 traceback.print_exc(file=_LOG_STREAM)
                 _LOG_STREAM.flush()
@@ -511,7 +523,9 @@ class CaseChatbotV2:
         if not DEBUG:
             return
         try:
-            history = getattr(response, "automatic_function_calling_history", None) or []
+            history = (
+                getattr(response, "automatic_function_calling_history", None) or []
+            )
             log("MODEL", f"automatic FC history entries: {len(history)}")
 
             calls = getattr(response, "function_calls", None) or []
@@ -524,7 +538,9 @@ class CaseChatbotV2:
                 kinds = [
                     "fn:" + p.function_call.name
                     if getattr(p, "function_call", None)
-                    else (f"text:{len(p.text)}" if getattr(p, "text", None) else "other")
+                    else (
+                        f"text:{len(p.text)}" if getattr(p, "text", None) else "other"
+                    )
                     for p in parts
                 ]
                 log(
@@ -551,7 +567,10 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         prompt = " ".join(sys.argv[1:])
         ans = bot.answer_query(prompt)
-        log("MAIN", f"answer {len(ans)} chars; total wall clock {time.perf_counter() - _T0:.2f}s")
+        log(
+            "MAIN",
+            f"answer {len(ans)} chars; total wall clock {time.perf_counter() - _T0:.2f}s",
+        )
         print("\n=== AI CHATBOT RESPONSE ===")
         print(ans)
     else:

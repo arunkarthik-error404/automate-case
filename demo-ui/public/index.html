@@ -36,19 +36,29 @@
           <p class="header-subtitle">Interactive Document Explorer</p>
         </div>
       </div>
-      <div class="header-stats" id="headerStats">
-        <div class="stat-chip">
-          <span class="stat-number" id="statPersons">—</span>
-          <span class="stat-label">Persons</span>
+      <div class="header-actions">
+        <div class="header-stats" id="headerStats">
+          <div class="stat-chip">
+            <span class="stat-number" id="statPersons">—</span>
+            <span class="stat-label">Persons</span>
+          </div>
+          <div class="stat-chip">
+            <span class="stat-number" id="statEntities">—</span>
+            <span class="stat-label">Entities</span>
+          </div>
+          <div class="stat-chip">
+            <span class="stat-number" id="statDocs">—</span>
+            <span class="stat-label">Documents</span>
+          </div>
         </div>
-        <div class="stat-chip">
-          <span class="stat-number" id="statEntities">—</span>
-          <span class="stat-label">Entities</span>
-        </div>
-        <div class="stat-chip">
-          <span class="stat-number" id="statDocs">—</span>
-          <span class="stat-label">Documents</span>
-        </div>
+        <button class="assistant-trigger" id="assistantTrigger" aria-expanded="false" aria-controls="aiDock">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            <line x1="8" y1="9" x2="16" y2="9"/>
+            <line x1="8" y1="13" x2="13" y2="13"/>
+          </svg>
+          <span>AI Assistant</span>
+        </button>
       </div>
     </div>
   </header>
@@ -70,15 +80,15 @@
         <p class="empty-desc">Choose a name from the panel on the right and click <strong>Populate</strong> to view all related documents.</p>
         <div class="empty-hints">
           <div class="hint-card">
-            <div class="hint-icon person-icon">👤</div>
+            <div class="hint-icon person-icon"><svg class="toggle-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
             <span>Persons</span>
           </div>
           <div class="hint-card">
-            <div class="hint-icon entity-icon">🏢</div>
+            <div class="hint-icon entity-icon"><svg class="toggle-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/></svg></div>
             <span>Entities</span>
           </div>
           <div class="hint-card">
-            <div class="hint-icon doc-icon">📄</div>
+            <div class="hint-icon doc-icon"><svg class="toggle-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
             <span>PDF Preview</span>
           </div>
         </div>
@@ -123,19 +133,19 @@
           <h3 class="sidebar-label">Search Type</h3>
           <div class="toggle-group" id="typeToggle">
             <button class="toggle-btn active" data-type="person" id="btnPerson">
-              <span class="toggle-icon">👤</span>
+              <svg class="toggle-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
               Person
             </button>
             <button class="toggle-btn" data-type="entity" id="btnEntity">
-              <span class="toggle-icon">🏢</span>
+              <svg class="toggle-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><line x1="9" y1="9" x2="9" y2="9.01"/><line x1="9" y1="13" x2="9" y2="13.01"/></svg>
               Entity
             </button>
             <button class="toggle-btn" data-type="asset" id="btnAsset">
-              <span class="toggle-icon">🏡</span>
+              <svg class="toggle-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9 21v-6h6v6"/></svg>
               Asset Details
             </button>
             <button class="toggle-btn" data-type="debtor" id="btnDebtor">
-              <span class="toggle-icon">📋</span>
+              <svg class="toggle-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 12h6"/><path d="M9 16h4"/></svg>
               Debtor Search
             </button>
           </div>
@@ -222,74 +232,95 @@
     </div>
   </div>
 
-  <!-- Floating AI Chatbot Widget -->
-  <button class="ai-chat-toggle" id="aiChatToggle" title="Open AI Legal Assistant">
-    <div class="toggle-sparkle">✨</div>
-    <span>AI Chatbot</span>
-  </button>
+  <!-- AI Assistant — docked panel -->
+  <div class="dock-scrim" id="dockScrim"></div>
 
-  <div class="ai-chat-window" id="aiChatWindow" style="display:none;">
-    <!-- Resize handles (edges + corners) -->
-    <span class="chat-resize chat-resize-n" data-dir="n"></span>
-    <span class="chat-resize chat-resize-s" data-dir="s"></span>
-    <span class="chat-resize chat-resize-w" data-dir="w"></span>
-    <span class="chat-resize chat-resize-e" data-dir="e"></span>
-    <span class="chat-resize chat-resize-nw" data-dir="nw"></span>
-    <span class="chat-resize chat-resize-ne" data-dir="ne"></span>
-    <span class="chat-resize chat-resize-sw" data-dir="sw"></span>
-    <span class="chat-resize chat-resize-se" data-dir="se"></span>
-
-    <div class="chat-header" id="chatHeader" title="Drag to move · double-click to reset">
+  <aside class="ai-dock" id="aiDock" aria-label="AI legal assistant" aria-hidden="true">
+    <div class="chat-header">
       <div class="chat-header-info">
-        <div class="chat-avatar">🤖</div>
+        <span class="chat-avatar" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 16l3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1z"/>
+            <path d="M2 16l3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1z"/>
+            <path d="M7 21h10"/>
+            <path d="M12 3v18"/>
+            <path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>
+          </svg>
+        </span>
         <div>
-          <h3 class="chat-title">AI Legal Assistant</h3>
-          <span class="chat-subtitle">PostgreSQL + pgvector Hybrid Search</span>
+          <h2 class="chat-title">AI Legal Assistant</h2>
+          <span class="chat-subtitle"><span class="status-dot" aria-hidden="true"></span>Grounded in your case documents</span>
         </div>
       </div>
       <div class="chat-header-actions">
-        <button class="chat-icon-btn" id="chatMinimizeBtn" title="Minimise to the chat bubble" aria-label="Minimise chat">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-            <line x1="5" y1="12" x2="19" y2="12"/>
+        <button type="button" class="dock-icon-btn" id="chatResetBtn" title="New conversation" aria-label="Start a new conversation">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 1 0 3-6.7L3 8"/>
+            <path d="M3 3v5h5"/>
           </svg>
         </button>
-        <button class="chat-close-btn" id="chatCloseBtn" title="Close" aria-label="Close chat">&times;</button>
+        <button type="button" class="dock-icon-btn" id="dockCloseBtn" title="Close assistant" aria-label="Close assistant">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
       </div>
     </div>
 
-    <!-- Quick prompt chips -->
-    <div class="quick-prompts">
-      <button class="chip-btn" data-prompt="can you tell me the details about the g janarthan reddy son of gurumurthy reddy">
-        👤 G Janardhan Reddy (s/o Gurumurthy)
-      </button>
-      <button class="chip-btn" data-prompt="summary of ROC search for GVR ELECTRO TECHNICS">
-        📄 Summary of GVR Electro Technics
-      </button>
-      <button class="chip-btn" data-prompt="summary of ROC search for Space World Group">
-        🏢 Summary of Space World Group
-      </button>
-    </div>
-
-    <!-- Messages Container -->
-    <div class="chat-messages" id="chatMessages">
-      <div class="chat-msg bot-msg">
-        <div class="msg-bubble">
-          Hello! I am your AI Research Assistant. Ask me about specific individuals (with father's name or location disambiguation) or request a document summary!
+    <div class="chat-messages" id="chatMessages" role="log" aria-live="polite" aria-label="Conversation">
+      <div class="chat-intro" id="chatIntro">
+        <p class="intro-title">Ask about any person, entity or document</p>
+        <p class="intro-desc">
+          I search the case reports only when I need to. Name a person with their father's
+          name to disambiguate, or ask for a summary of an entity.
+        </p>
+        <p class="intro-label">Try one of these</p>
+        <div class="prompt-cards">
+          <button type="button" class="prompt-card chip-btn" data-prompt="can you tell me the details about the g janarthan reddy son of gurumurthy reddy">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+            G Janardhan Reddy (s/o Gurumurthy)
+          </button>
+          <button type="button" class="prompt-card chip-btn" data-prompt="summary of ROC search for GVR ELECTRO TECHNICS">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+            </svg>
+            Summary of GVR Electro Technics
+          </button>
+          <button type="button" class="prompt-card chip-btn" data-prompt="summary of ROC search for Space World Group">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 21h18"/>
+              <path d="M5 21V7l8-4v18"/>
+              <path d="M19 21V11l-6-4"/>
+              <line x1="9" y1="9" x2="9" y2="9.01"/>
+              <line x1="9" y1="13" x2="9" y2="13.01"/>
+            </svg>
+            Summary of Space World Group
+          </button>
         </div>
       </div>
     </div>
 
-    <!-- Input Form -->
     <form class="chat-input-form" id="chatInputForm">
-      <input type="text" id="chatInput" placeholder="Ask a question about any person or document..." autocomplete="off" />
-      <button type="submit" id="chatSendBtn">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="22" y1="2" x2="11" y2="13"></line>
-          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-        </svg>
-      </button>
+      <label class="sr-only" for="chatInput">Ask a question about any person or document</label>
+      <div class="composer">
+        <input type="text" id="chatInput" placeholder="Ask a question…" autocomplete="off" />
+        <button type="submit" id="chatSendBtn" aria-label="Send message">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="22" y1="2" x2="11" y2="13"/>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          </svg>
+        </button>
+      </div>
+      <p class="composer-hint">Remembers the last 10 messages in this tab</p>
     </form>
-  </div>
+  </aside>
 
   <script src="app.js"></script>
 </body>

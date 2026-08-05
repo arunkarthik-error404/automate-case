@@ -581,12 +581,13 @@ function escAttr(str) {
 }
 
 // ─── AI Chatbot UI Handler ──────────────────────────────────────
-// Messaging only — showing, hiding and positioning the window is owned
-// by initChatWindow()
+// Messaging only — opening and closing the docked panel is owned by initAiDock()
 function initAiChatbot() {
   const inputForm = document.getElementById('chatInputForm');
   const chatInput = document.getElementById('chatInput');
   const messagesContainer = document.getElementById('chatMessages');
+  const sendBtn = document.getElementById('chatSendBtn');
+  const resetBtn = document.getElementById('chatResetBtn');
   const chipBtns = document.querySelectorAll('.chip-btn');
 
   if (!inputForm || !messagesContainer) return;
@@ -600,6 +601,8 @@ function initAiChatbot() {
       }
     });
   });
+
+  if (resetBtn) resetBtn.addEventListener('click', resetConversation);
 
   inputForm.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -619,11 +622,21 @@ function initAiChatbot() {
     return id;
   }
 
+  let sending = false;
+
+  function setSending(state) {
+    sending = state;
+    if (sendBtn) sendBtn.disabled = state;
+    if (chatInput) chatInput.disabled = state;
+  }
+
   async function sendChatMessage(promptText) {
+    if (sending) return;
     appendMessage(promptText, 'user');
     chatInput.value = '';
+    setSending(true);
 
-    const loadingId = appendMessage('Searching...', 'bot', true);
+    const loadingId = appendMessage('', 'bot', true);
 
     try {
       const res = await fetch('/api/chat', {
@@ -643,7 +656,26 @@ function initAiChatbot() {
     } catch (err) {
       removeMessage(loadingId);
       appendMessage('Error communicating with AI server: ' + err.message, 'bot');
+    } finally {
+      setSending(false);
+      chatInput.focus();
     }
+  }
+
+  // Clears this tab's server-side history and returns to the starter prompts
+  async function resetConversation() {
+    try {
+      await fetch('/api/chat/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: getChatSessionId() })
+      });
+    } catch (err) {
+      console.error('Could not reset the conversation:', err);
+    }
+    messagesContainer.querySelectorAll('.chat-msg').forEach(el => el.remove());
+    messagesContainer.classList.remove('has-messages');
+    chatInput.focus();
   }
 
   async function openPdfByName(filename) {
@@ -744,8 +776,7 @@ function initAiChatbot() {
     bubble.className = 'msg-bubble';
     
     if (isLoading) {
-      bubble.innerHTML = '<span class="loading-pulse"><span class="loading-dots">Searching</span><span class="dot-anim">...</span></span>';
-      bubble.style.opacity = '0.85';
+      bubble.innerHTML = '<span class="typing-indicator" role="status" aria-label="Assistant is thinking"><span></span><span></span><span></span></span>';
     } else if (sender === 'bot') {
       bubble.innerHTML = formatChatMarkdown(text);
     } else {
@@ -754,6 +785,8 @@ function initAiChatbot() {
 
     msgDiv.appendChild(bubble);
     messagesContainer.appendChild(msgDiv);
+    // Swaps the starter prompts out for the conversation
+    messagesContainer.classList.add('has-messages');
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
     return msgId;
   }
@@ -764,244 +797,52 @@ function initAiChatbot() {
   }
 }
 
-// ─── Chat window: open / minimise / drag / resize ───────────────
-function initChatWindow() {
-  const win = $('#aiChatWindow');
-  const header = $('#chatHeader');
-  const minimizeBtn = $('#chatMinimizeBtn');
-  const closeBtn = $('#chatCloseBtn');
-  const toggleBtn = $('#aiChatToggle');
-  if (!win || !header) return;
+// ─── Assistant dock: open / close / focus ───────────────────────
+function initAiDock() {
+  const dock = $('#aiDock');
+  const scrim = $('#dockScrim');
+  const trigger = $('#assistantTrigger');
+  const closeBtn = $('#dockCloseBtn');
+  const chatInput = $('#chatInput');
+  if (!dock || !trigger) return;
 
-  const MIN_W = 320;
-  const MIN_H = 320;
+  const isOpen = () => document.body.classList.contains('dock-open');
 
-  // The window starts anchored via CSS bottom/right; the first drag or
-  // resize switches it to explicit left/top/width/height.
-  let normalized = false;
+  function openDock() {
+    document.body.classList.add('dock-open');
+    dock.setAttribute('aria-hidden', 'false');
+    trigger.setAttribute('aria-expanded', 'true');
+    sessionStorage.setItem('assistantDockOpen', '1');
+    if (chatInput) chatInput.focus();
+  }
 
-  const px = (v) => parseFloat(v) || 0;
-  const currentBox = () => ({
-    left: px(win.style.left),
-    top: px(win.style.top),
-    width: px(win.style.width),
-    height: px(win.style.height)
+  function closeDock() {
+    document.body.classList.remove('dock-open');
+    dock.setAttribute('aria-hidden', 'true');
+    trigger.setAttribute('aria-expanded', 'false');
+    sessionStorage.setItem('assistantDockOpen', '0');
+    trigger.focus();
+  }
+
+  trigger.addEventListener('click', () => (isOpen() ? closeDock() : openDock()));
+  if (closeBtn) closeBtn.addEventListener('click', closeDock);
+  if (scrim) scrim.addEventListener('click', closeDock);
+
+  // Escape closes the panel, but never while the PDF modal is on top of it
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !isOpen()) return;
+    const modal = $('#pdfModal');
+    if (modal && modal.classList.contains('open')) return;
+    closeDock();
   });
 
-  function applyBox(box) {
-    const width = Math.max(MIN_W, Math.min(box.width, window.innerWidth));
-    const height = Math.max(MIN_H, Math.min(box.height, window.innerHeight));
-    const left = Math.max(0, Math.min(box.left, window.innerWidth - width));
-    const top = Math.max(0, Math.min(box.top, window.innerHeight - height));
-
-    win.style.left = `${left}px`;
-    win.style.top = `${top}px`;
-    win.style.width = `${width}px`;
-    win.style.height = `${height}px`;
-    win.style.right = 'auto';
-    win.style.bottom = 'auto';
-    win.style.maxWidth = 'none';
-    win.style.maxHeight = 'none';
-    normalized = true;
-  }
-
-  function normalize() {
-    if (normalized) return;
-    // Drop the open animation so we measure the settled position, not a
-    // mid-flight transform
-    win.style.animation = 'none';
-    const r = win.getBoundingClientRect();
-    applyBox({ left: r.left, top: r.top, width: r.width, height: r.height });
-  }
-
-  // Back to the CSS defaults: docked above the bubble, 420 x 580
-  function resetBox() {
-    ['left', 'top', 'width', 'height', 'right', 'bottom', 'maxWidth', 'maxHeight', 'animation']
-      .forEach(prop => { win.style[prop] = ''; });
-    normalized = false;
-  }
-
-  // Shared pointer-drag loop: reports the delta since pointerdown
-  function trackPointer(el, downEvt, onMove) {
-    const startX = downEvt.clientX;
-    const startY = downEvt.clientY;
-
-    const move = (ev) => onMove(ev.clientX - startX, ev.clientY - startY);
-    const end = () => {
-      el.removeEventListener('pointermove', move);
-      el.removeEventListener('pointerup', end);
-      el.removeEventListener('pointercancel', end);
-      if (el.hasPointerCapture(downEvt.pointerId)) el.releasePointerCapture(downEvt.pointerId);
-      win.classList.remove('interacting');
-    };
-
-    el.setPointerCapture(downEvt.pointerId);
-    win.classList.add('interacting');
-    el.addEventListener('pointermove', move);
-    el.addEventListener('pointerup', end);
-    el.addEventListener('pointercancel', end);
-    downEvt.preventDefault();
-  }
-
-  // Clicks on the header buttons must not start a drag
-  const onButtons = (e) => !!(e.target.closest && e.target.closest('.chat-header-actions'));
-
-  // Move: drag the header
-  header.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0 || onButtons(e)) return;
-    normalize();
-    const start = currentBox();
-    trackPointer(header, e, (dx, dy) => {
-      applyBox({ ...start, left: start.left + dx, top: start.top + dy });
-    });
-  });
-
-  // Reset to the default corner position and size
-  header.addEventListener('dblclick', (e) => {
-    if (onButtons(e)) return;
-    resetBox();
-  });
-
-  // ── Open / minimise / close ───────────────────────────────────
-  // Minimising parks the chat back on the bubble and remembers where it
-  // was; closing forgets it, so the next chat opens at the default spot.
-  let parkedBox = null;
-  let flightTimer = null;
-
-  const isOpen = () => win.style.display !== 'none';
-
-  function cancelFlight() {
-    if (flightTimer) clearTimeout(flightTimer);
-    flightTimer = null;
-    win.style.transition = '';
-    win.style.transform = '';
-    win.style.opacity = '';
-  }
-
-  // Offset from the window's centre to the bubble's centre
-  function bubbleDelta() {
-    const w = win.getBoundingClientRect();
-    const b = toggleBtn.getBoundingClientRect();
-    return {
-      dx: (b.left + b.width / 2) - (w.left + w.width / 2),
-      dy: (b.top + b.height / 2) - (w.top + w.height / 2)
-    };
-  }
-
-  // Shrink the window towards the bubble so it reads as "minimise to taskbar"
-  function flyToBubble(onDone) {
-    if (!toggleBtn) { onDone(); return; }
-    const { dx, dy } = bubbleDelta();
-
-    win.style.transition = 'transform 0.22s ease-in, opacity 0.22s ease-in';
-    win.style.transformOrigin = 'center center';
-    requestAnimationFrame(() => {
-      win.style.transform = `translate(${dx}px, ${dy}px) scale(0.08)`;
-      win.style.opacity = '0';
-    });
-
-    flightTimer = setTimeout(() => {
-      cancelFlight();
-      onDone();
-    }, 220);
-  }
-
-  // Grow back out of the bubble, mirroring the minimise
-  function flyFromBubble() {
-    if (!toggleBtn) return;
-    const { dx, dy } = bubbleDelta();
-
-    win.style.transition = 'none';
-    win.style.transformOrigin = 'center center';
-    win.style.transform = `translate(${dx}px, ${dy}px) scale(0.08)`;
-    win.style.opacity = '0';
-    requestAnimationFrame(() => {
-      win.style.transition = 'transform 0.24s var(--ease-out), opacity 0.24s ease-out';
-      win.style.transform = 'translate(0, 0) scale(1)';
-      win.style.opacity = '1';
-    });
-
-    flightTimer = setTimeout(cancelFlight, 260);
-  }
-
-  function openChat() {
-    cancelFlight();
-    // Restore where it was parked, otherwise start from the default dock
-    const wasParked = !!parkedBox;
-    if (parkedBox) applyBox(parkedBox);
-    else resetBox();
-    parkedBox = null;
-    if (toggleBtn) toggleBtn.classList.remove('has-parked-chat');
-
-    win.style.display = 'flex';
-    if (wasParked) flyFromBubble();
-
-    const input = $('#chatInput');
-    if (input) input.focus();
-  }
-
-  function minimizeChat() {
-    if (!isOpen() || flightTimer) return;
-    normalize();
-    parkedBox = currentBox();
-    if (toggleBtn) toggleBtn.classList.add('has-parked-chat');
-    flyToBubble(() => { win.style.display = 'none'; });
-  }
-
-  function closeChat() {
-    cancelFlight();
-    win.style.display = 'none';
-    parkedBox = null;
-    resetBox();
-    if (toggleBtn) toggleBtn.classList.remove('has-parked-chat');
-  }
-
-  if (minimizeBtn) minimizeBtn.addEventListener('click', minimizeChat);
-  if (closeBtn) closeBtn.addEventListener('click', closeChat);
-
-  // The bubble doubles as the taskbar slot: click to park or bring back
-  if (toggleBtn) {
-    toggleBtn.addEventListener('click', () => {
-      if (isOpen()) minimizeChat();
-      else openChat();
-    });
-  }
-
-  // Resize: drag any edge or corner
-  win.querySelectorAll('.chat-resize').forEach(handle => {
-    handle.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0) return;
-      normalize();
-      const dir = handle.dataset.dir || '';
-      const start = currentBox();
-
-      trackPointer(handle, e, (dx, dy) => {
-        let { left, top, width, height } = start;
-
-        if (dir.includes('e')) width = start.width + dx;
-        if (dir.includes('s')) height = start.height + dy;
-        if (dir.includes('w')) { width = start.width - dx; left = start.left + dx; }
-        if (dir.includes('n')) { height = start.height - dy; top = start.top + dy; }
-
-        // Keep the opposite edge pinned once the minimum size is reached
-        if (dir.includes('w') && width < MIN_W) left = start.left + start.width - MIN_W;
-        if (dir.includes('n') && height < MIN_H) top = start.top + start.height - MIN_H;
-
-        applyBox({ left, top, width, height });
-      });
-    });
-  });
-
-  // Keep the window on screen when the viewport changes
-  window.addEventListener('resize', () => {
-    if (normalized && isOpen()) applyBox(currentBox());
-  });
+  if (sessionStorage.getItem('assistantDockOpen') === '1') openDock();
 }
 
 // ─── Boot ───────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   init();
   initAiChatbot();
-  initChatWindow();
+  initAiDock();
 });
 

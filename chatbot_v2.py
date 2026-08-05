@@ -237,7 +237,20 @@ def _truncate(text: str, limit: int = MAX_CHUNK_CHARS) -> str:
 def _keyword_search_rows(term: str, category: str):
     """Run the LIKE query against Postgres if available, else the SQLite fallback."""
     like = f"%{term}%"
-    cat_like = f"%{category}%" if category else None
+    if category:
+        cat_lower = category.lower().strip()
+        if "asset" in cat_lower:
+            cat_like = "%asset%"
+        elif "debtor" in cat_lower:
+            cat_like = "%debtor%"
+        elif "roc" in cat_lower:
+            cat_like = "%roc%"
+        elif "litigation" in cat_lower:
+            cat_like = "%litigation%"
+        else:
+            cat_like = f"%{category}%"
+    else:
+        cat_like = None
 
     t = time.perf_counter()
     pg_conn = connect_postgres(DB_NAME)
@@ -249,13 +262,19 @@ def _keyword_search_rows(term: str, category: str):
     if pg_conn:
         cur = pg_conn.cursor()
         sql = """
-            SELECT d.file_name, d.entity_name, d.category, c.page_number, c.chunk_text
-            FROM document_chunks c JOIN documents d ON c.document_id = d.id
-            WHERE (d.entity_name ILIKE %s OR d.file_name ILIKE %s OR c.chunk_text ILIKE %s)
-              {cat_clause}
-              AND LENGTH(c.chunk_text) > 40
-            ORDER BY d.file_name ASC, c.page_number ASC, c.chunk_index ASC
-            LIMIT 15;
+            WITH RankedChunks AS (
+                SELECT d.file_name, d.entity_name, d.category, c.page_number, c.chunk_text,
+                       ROW_NUMBER() OVER(PARTITION BY d.id ORDER BY c.page_number ASC, c.chunk_index ASC) as rn
+                FROM document_chunks c JOIN documents d ON c.document_id = d.id
+                WHERE (d.entity_name ILIKE %s OR d.file_name ILIKE %s OR c.chunk_text ILIKE %s)
+                  {cat_clause}
+                  AND LENGTH(c.chunk_text) > 40
+            )
+            SELECT file_name, entity_name, category, page_number, chunk_text
+            FROM RankedChunks
+            WHERE rn <= 2
+            ORDER BY file_name ASC
+            LIMIT 40;
         """.format(cat_clause="AND d.category ILIKE %s" if cat_like else "")
         params = [like, like, like] + ([cat_like] if cat_like else [])
         cur.execute(sql, params)
@@ -270,13 +289,19 @@ def _keyword_search_rows(term: str, category: str):
     conn = sqlite3.connect(SQLITE_DB_PATH)
     cur = conn.cursor()
     sql = """
-        SELECT d.file_name, d.entity_name, d.category, c.page_number, c.chunk_text
-        FROM document_chunks c JOIN documents d ON c.document_id = d.id
-        WHERE (d.entity_name LIKE ? OR d.file_name LIKE ? OR c.chunk_text LIKE ?)
-          {cat_clause}
-          AND LENGTH(c.chunk_text) > 40
-        ORDER BY d.file_name ASC, c.page_number ASC, c.chunk_index ASC
-        LIMIT 15;
+        WITH RankedChunks AS (
+            SELECT d.file_name, d.entity_name, d.category, c.page_number, c.chunk_text,
+                   ROW_NUMBER() OVER(PARTITION BY d.id ORDER BY c.page_number ASC, c.chunk_index ASC) as rn
+            FROM document_chunks c JOIN documents d ON c.document_id = d.id
+            WHERE (d.entity_name LIKE ? OR d.file_name LIKE ? OR c.chunk_text LIKE ?)
+              {cat_clause}
+              AND LENGTH(c.chunk_text) > 40
+        )
+        SELECT file_name, entity_name, category, page_number, chunk_text
+        FROM RankedChunks
+        WHERE rn <= 2
+        ORDER BY file_name ASC
+        LIMIT 40;
     """.format(cat_clause="AND d.category LIKE ?" if cat_like else "")
     params = [like, like, like] + ([cat_like] if cat_like else [])
     cur.execute(sql, params)
@@ -303,7 +328,7 @@ class CaseChatbotV2:
             "INIT",
             f"project={project_id} location={location} use_vertex={use_vertex} "
             f"api_key={'set' if api_key else 'unset'} "
-            f"model={os.getenv('VERTEX_MODEL', 'gemini-3.1-flash')}",
+            f"model={os.getenv('VERTEX_MODEL', 'gemini-2.5-flash')}",
         )
 
         with timed("INIT", "get_gcp_credentials"):
@@ -471,7 +496,7 @@ class CaseChatbotV2:
                 "credentials or GEMINI_API_KEY to enable the agentic chatbot.]"
             )
 
-        model_name = os.getenv("VERTEX_MODEL", "gemini-3.1-flash")
+        model_name = os.getenv("VERTEX_MODEL", "gemini-2.5-flash")
         tools = self._build_tools()
         config = types.GenerateContentConfig(
             tools=tools,

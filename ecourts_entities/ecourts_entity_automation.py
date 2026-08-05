@@ -77,11 +77,23 @@ START_YEAR    = 2026
 END_YEAR      = 2020
 DEFAULT_DELAY = 4.0  # seconds pacing delay to avoid IP rate-limiting / blocking
 
-TARGET_DISTRICTS = [
+TARGET_DISTRICTS_DELHI = [
     {"state": "Delhi",      "district_pattern": r"new delhi"},
+]
+
+TARGET_DISTRICTS_RAJASTHAN = [
     {"state": "Rajasthan",  "district_pattern": r"jaipur"},
+]
+
+TARGET_DISTRICTS_BENGALURU = [
     {"state": "Karnataka",  "district_pattern": r"bengaluru|bangalore"},
 ]
+
+TARGET_DISTRICTS_TELANGANA = [
+    {"state": "Telangana",  "district_pattern": r"ranga|rangareddy"},
+]
+
+TARGET_DISTRICTS = TARGET_DISTRICTS_DELHI + TARGET_DISTRICTS_RAJASTHAN + TARGET_DISTRICTS_BENGALURU + TARGET_DISTRICTS_TELANGANA
 
 ENTITIES = [
     "Space World Group LLP",
@@ -974,15 +986,28 @@ def search_district_for_entity(driver_or_ref, entity_name, target_cfg, delay=DEF
 
 # ── RUNNER FUNCTION ─────────────────────────────────────────────────
 
-def run_district_for_entities(target_entities, delay=DEFAULT_DELAY):
+def run_district_for_entities(target_entities, state_filter=None, delay=DEFAULT_DELAY):
     if isinstance(target_entities, str):
         target_entities = [target_entities]
+
+    dist_cfg_list = TARGET_DISTRICTS
+    if state_filter:
+        sf = str(state_filter).lower().strip()
+        if sf in ["delhi", "new delhi"]:
+            dist_cfg_list = TARGET_DISTRICTS_DELHI
+        elif sf in ["rajasthan", "jaipur"]:
+            dist_cfg_list = TARGET_DISTRICTS_RAJASTHAN
+        elif sf in ["bengaluru", "bangalore", "karnataka", "ka"]:
+            dist_cfg_list = TARGET_DISTRICTS_BENGALURU
+        elif sf in ["telangana", "ts", "ranga", "rangareddy"]:
+            dist_cfg_list = TARGET_DISTRICTS_TELANGANA
 
     print("="*70)
     print("  eCourts District Courts Automation for Entities (ecourtindia_v6)")
     print(f"  Target URL : {BASE_URL}")
     print(f"  Downloads  : {DOWNLOAD_DIR.resolve()}")
     print(f"  Targets    : {len(target_entities)} Entity/Entities")
+    print(f"  Regions    : {[d['state'] for d in dist_cfg_list]}")
     print(f"  Pacing     : {delay}s delay between requests")
     for e in target_entities:
         print(f"               - {e}")
@@ -992,7 +1017,7 @@ def run_district_for_entities(target_entities, delay=DEFAULT_DELAY):
 
     try:
         for entity in target_entities:
-            for dist_cfg in TARGET_DISTRICTS:
+            for dist_cfg in dist_cfg_list:
                 log(f"\n🚀 Launching fresh Chrome browser for '{entity}' in state '{dist_cfg['state']}'...")
                 driver = make_driver()
                 driver_ref = [driver]
@@ -1021,6 +1046,8 @@ def main():
     parser.add_argument("--entity-index", type=int, choices=range(1, len(ENTITIES) + 1),
                         help="Index of entity to search (1 to 6)")
     parser.add_argument("--all", action="store_true", help="Search all entities sequentially")
+    parser.add_argument("--state", type=str, choices=["delhi", "rajasthan", "bengaluru", "telangana", "karnataka", "all"], default="all",
+                        help="Target state/region: 'delhi', 'rajasthan', 'bengaluru', or 'telangana'")
     parser.add_argument("--delay", type=float, default=DEFAULT_DELAY, help="Pacing delay in seconds (default 4.0)")
 
     args = parser.parse_args()
@@ -1032,7 +1059,7 @@ def main():
     else:
         targets = ENTITIES
 
-    run_district_for_entities(targets, delay=args.delay)
+    run_district_for_entities(targets, state_filter=args.state, delay=args.delay)
 
 if __name__ == "__main__":
     main()
